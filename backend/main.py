@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.admin_endpoint_v1.views import router as admin_router
 from backend.base_endpoint_v1.views import router as base_router
-from backend.config import ADMIN_LEVEL_SUPER, SUPER_ADMIN
+from backend.config import ADMIN_LEVEL_SUPER, SUPER_ADMIN, WEBAPP_URL
 from backend.external_auth_endpoint_v1.views import router as external_auth_router
 from backend.group_endpoint_v1.views import router as group_router
 from backend.markin_endpoint_v1.views import router as markin_router
@@ -68,6 +68,28 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         logger.error(f"Error during admin user setup: {e}")
+
+    # Auto-set Telegram webhook
+    if WEBAPP_URL:
+        try:
+            import requests as req
+
+            from backend.utils_helper import TELEGRAM_API_URL
+
+            webhook_url = f"{WEBAPP_URL.rstrip('/')}/api/telegram-webhook"
+            resp = req.post(
+                f"{TELEGRAM_API_URL}/setWebhook",
+                json={"url": webhook_url, "allowed_updates": ["message"]},
+            )
+            result = resp.json()
+            if result.get("ok"):
+                logger.info(f"Telegram webhook set to {webhook_url}")
+            else:
+                logger.error(f"Failed to set webhook: {result}")
+        except Exception as e:
+            logger.error(f"Error setting webhook: {e}")
+    else:
+        logger.warning("WEBAPP_URL not set, skipping webhook setup")
 
     yield
 
