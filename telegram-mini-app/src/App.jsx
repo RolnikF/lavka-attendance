@@ -32,9 +32,8 @@ const App = () => {
       setError("Произошла критическая ошибка. Попробуйте обновить страницу.");
       setLoading(false);
 
-      // Предотвращаем белый экран
-      event.preventDefault && event.preventDefault();
-      return true;
+      // Логируем ошибку для диагностики
+      console.error("Global error caught:", event.reason || event.error || event.message || event);
     };
 
     // Перехватываем все ошибки JavaScript
