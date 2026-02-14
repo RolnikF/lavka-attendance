@@ -5,8 +5,8 @@ services:
     image: postgres:15
     container_name: mireapprove-postgres-new
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-mydb2}
-      POSTGRES_USER: ${POSTGRES_USER:-myuser}
+      POSTGRES_DB: ${POSTGRES_DB:-mireapprove}
+      POSTGRES_USER: ${POSTGRES_USER:-mireapprove}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data_new:/var/lib/postgresql/data
@@ -14,7 +14,7 @@ services:
     #   - "5432:5432"  # Закомментировано для безопасности. Раскомментируйте для локальной отладки.
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d mydb2"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-mireapprove}"]
       interval: 5s
       timeout: 5s
       retries: 5
