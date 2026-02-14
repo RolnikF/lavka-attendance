@@ -2,7 +2,6 @@
  * Skeleton loading component.
  * Provides placeholder UI while content is loading.
  */
-import React from 'react';
 import { cn } from '../../lib/utils';
 
 /**

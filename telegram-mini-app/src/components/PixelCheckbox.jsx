@@ -1,8 +1,8 @@
-import React from 'react';
+import { forwardRef } from 'react';
 import { cn } from "../lib/utils";
 import PixelIcon from './PixelIcon';
 
-const PixelCheckbox = React.forwardRef(({
+const PixelCheckbox = forwardRef(({
   checked,
   onChange,
   className,

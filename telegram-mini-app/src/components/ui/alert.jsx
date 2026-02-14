@@ -1,7 +1,7 @@
-import React from 'react';
+import { forwardRef } from 'react';
 import { cn } from '../../lib/utils';
 
-const Alert = React.forwardRef(({ className, variant = "default", ...props }, ref) => {
+const Alert = forwardRef(({ className, variant = "default", ...props }, ref) => {
   const variants = {
     default: "bg-white text-black border-black",
     destructive: "bg-[var(--pixel-destructive)] text-white border-black"
@@ -24,7 +24,7 @@ const Alert = React.forwardRef(({ className, variant = "default", ...props }, re
 
 Alert.displayName = "Alert";
 
-const AlertDescription = React.forwardRef(({ className, ...props }, ref) => (
+const AlertDescription = forwardRef(({ className, ...props }, ref) => (
   <div 
     ref={ref} 
     className={cn("text-sm mt-1 font-pixel", className)}
