@@ -19,8 +19,8 @@
 1. Сторонний сервис генерирует JWT токен
 2. Сервис регистрирует токен на нашем бэкенде (POST /api/external-auth/register)
 3. Сервис показывает токен пользователю
-4. Пользователь отправляет токен боту в Telegram
-5. Бот подтверждает токен (POST /api/external-auth/approve)
+4. Пользователь отправляет токен встроенному боту MireApprove в Telegram
+5. Бот автоматически подтверждает токен (внутренняя операция, без публичного API)
 6. Сторонний сервис периодически проверяет статус (GET /api/external-auth/status/{token})
 7. После подтверждения, сервис использует токен для запросов (GET /api/external-auth/verify)
 ```
@@ -85,32 +85,17 @@
 
 ---
 
-### 3. Подтверждение токена (через бота)
+### 3. Подтверждение токена
 
-**POST** `/api/external-auth/approve`
+Токены подтверждаются **только** через встроенного Telegram-бота MireApprove.
+Публичный API-эндпоинт для подтверждения отсутствует — это сделано для безопасности,
+чтобы исключить подтверждение токенов без ведома пользователя.
 
-Подтверждает токен и связывает его с пользователем Telegram.
-
-**Request Body:**
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "tg_userid": 123456789
-}
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Token approved successfully"
-}
-```
-
-**Errors:**
-- `400` - Token expired or already processed
-- `404` - Token or user not found
-- `500` - Internal server error
+**Как это работает:**
+1. Пользователь отправляет токен боту MireApprove в личные сообщения
+2. Бот проверяет, что токен существует и находится в статусе `pending`
+3. Бот подтверждает токен и привязывает его к Telegram-аккаунту пользователя
+4. Сторонний сервис получает статус `approved` через polling (`GET /status/{token}`)
 
 ---
 
@@ -212,31 +197,13 @@ user_info = requests.get(
 ).json()
 ```
 
-### Telegram Bot
+### Telegram Bot (MireApprove)
 
-См. файл `example_telegram_bot.py` для полного примера.
+Подтверждение токенов встроено в основного бота MireApprove.
+Когда пользователь отправляет токен боту, бот автоматически проверяет и подтверждает его.
 
-Основная логика:
-```python
-from telegram import Update
-from telegram.ext import MessageHandler, filters
-import requests
-
-async def handle_token(update: Update, context):
-    token = update.message.text
-    tg_userid = update.effective_user.id
-
-    # Подтверждаем токен
-    response = requests.post(
-        "https://your-domain.com/api/external-auth/approve",
-        json={"token": token, "tg_userid": tg_userid}
-    )
-
-    if response.status_code == 200:
-        await update.message.reply_text("✅ Авторизация успешна!")
-    else:
-        await update.message.reply_text("❌ Ошибка авторизации")
-```
+Отдельный бот для подтверждения токенов **не нужен** — используйте встроенного бота MireApprove.
+Пользователь просто отправляет полученный от вашего сервиса токен в чат с ботом.
 
 ---
 
@@ -420,10 +387,10 @@ else:
          │                                    │  3. Пользователь отправляет токен │
          │                                    │ <────────────────────────────────  │
          │                                    │                                   │
-         │                                    │  4. POST /approve                 │
-         │                                    │ <────────────────────────────────  │
+         │                                    │  4. Бот подтверждает внутренне    │
+         │                                    │     (approve через webhook)       │
          │                                    │                                   │
-         │                                    │     → approved                    │
+         │                                    │     → "Авторизация успешна!"      │
          │                                    │ ─────────────────────────────────>│
          │                                    │                                   │
          │ 5. GET /status/{token} (polling)   │                                   │

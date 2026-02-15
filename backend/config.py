@@ -17,6 +17,9 @@ SUPER_ADMIN = int(_super_admin) if _super_admin else None
 # Trusted service API key (for service-to-service auth)
 TRUSTED_SERVICE_API_KEY = os.getenv("TRUSTED_SERVICE_API_KEY")
 
+# Telegram webhook secret (verifies incoming webhooks are from Telegram)
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+
 # Database pool settings
 DB_POOL_MIN_SIZE = 1
 DB_POOL_MAX_SIZE = 7

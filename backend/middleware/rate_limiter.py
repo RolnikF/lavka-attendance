@@ -70,18 +70,13 @@ def extract_tg_userid_from_init_data(init_data: str) -> str | None:
 
 
 def get_client_ip(request: Request) -> str:
-    """Get client IP from request headers or connection."""
-    # Check common proxy headers
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # Take first IP in chain
-        return forwarded_for.split(",")[0].strip()
+    """Get client IP from direct connection only.
 
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-
-    # Fallback to direct connection
+    Does NOT trust X-Forwarded-For / X-Real-IP headers to prevent
+    rate limiter bypass via header spoofing. When behind a reverse
+    proxy (nginx), configure proxy_pass so that request.client.host
+    reflects the real client IP (e.g. via nginx realip module).
+    """
     if request.client:
         return request.client.host
 

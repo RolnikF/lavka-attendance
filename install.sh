@@ -192,6 +192,7 @@ SUPER_ADMIN="$SUPER_ADMIN"
 APP_PORT="$APP_PORT"
 POSTGRES_PASSWORD="$POSTGRES_PASSWORD"
 ENCRYPTION_KEY="$ENCRYPTION_KEY"
+TELEGRAM_WEBHOOK_SECRET="$TELEGRAM_WEBHOOK_SECRET"
 NEWS_CHANNEL_URL="$NEWS_CHANNEL_URL"
 DONATE_URL="$DONATE_URL"
 SERVER_IP="$SERVER_IP"
@@ -469,6 +470,11 @@ except ImportError:
     fi
 
     print_success "Ключ шифрования сгенерирован"
+}
+
+generate_webhook_secret() {
+    TELEGRAM_WEBHOOK_SECRET=$(openssl rand -base64 32 | tr -d '/+=' | head -c 43)
+    print_success "Секрет вебхука сгенерирован"
 }
 
 # ===== КОНФИГУРАТОР =====
@@ -944,6 +950,7 @@ DSN=postgresql://mireapprove:$POSTGRES_PASSWORD@postgres/mireapprove
 
 # Security
 ENCRYPTION_KEY=$ENCRYPTION_KEY
+TELEGRAM_WEBHOOK_SECRET=$TELEGRAM_WEBHOOK_SECRET
 
 # Telegram Bot
 BOT_TOKEN=$BOT_TOKEN
@@ -1274,6 +1281,7 @@ main() {
         # Генерируем секреты
         generate_postgres_password
         generate_encryption_key
+        generate_webhook_secret
 
         # Проверяем порт
         handle_port_conflict

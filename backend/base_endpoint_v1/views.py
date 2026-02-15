@@ -1,3 +1,4 @@
+import hmac
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -88,7 +89,7 @@ async def check_user(
                 detail="Service API key not configured"
             )
 
-        if x_service_api_key != TRUSTED_SERVICE_API_KEY:
+        if not hmac.compare_digest(x_service_api_key, TRUSTED_SERVICE_API_KEY):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid service API key"

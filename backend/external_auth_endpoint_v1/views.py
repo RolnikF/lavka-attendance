@@ -15,8 +15,6 @@ from .schemas import (
     MireaTokenResponse,
     SubmitTotpRequest,
     SubmitTotpResponse,
-    TokenApproveRequest,
-    TokenApproveResponse,
     TokenRegisterRequest,
     TokenRegisterResponse,
     TokenStatusResponse,
@@ -101,45 +99,9 @@ async def check_token_status(token: str):
         await db.disconnect()
 
 
-@router.post("/approve", response_model=TokenApproveResponse)
-async def approve_token(request: TokenApproveRequest):
-    """
-    Endpoint для подтверждения токена через Telegram бота.
-    Вызывается, когда пользователь отправляет токен боту.
-    """
-    try:
-        await db.connect()
-
-        token_data = await db.get_external_token(request.token)
-
-        if not token_data:
-            raise HTTPException(status_code=404, detail="Token not found")
-
-        # Проверяем статус
-        if token_data["status"] != "pending":
-            raise HTTPException(
-                status_code=400,
-                detail=f"Token already processed with status: {token_data['status']}",
-            )
-
-        # Проверяем, существует ли пользователь
-        user = await db.get_user_by_id(request.tg_userid)
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        # Подтверждаем токен
-        await db.approve_external_token(request.token, request.tg_userid)
-
-        return TokenApproveResponse(
-            status="success", message="Token approved successfully"
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-    finally:
-        await db.disconnect()
+# /approve endpoint removed — tokens are approved ONLY through the Telegram bot
+# (webhook handler in tg_endpoint_v1/views.py, line ~196-236).
+# This prevents unauthenticated token approval by arbitrary callers.
 
 
 @router.delete("/reject/{token}")

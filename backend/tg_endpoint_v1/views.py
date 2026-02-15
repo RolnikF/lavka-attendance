@@ -1,8 +1,7 @@
 import logging
 from typing import Any, Dict
 
-import requests
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from backend.admin_endpoint_v1.crud import _create_user_part_1_new
 from backend.config import (
@@ -10,9 +9,10 @@ from backend.config import (
     DONATE_BOT_USERNAME,
     DONATE_URL,
     NEWS_CHANNEL_URL,
+    TELEGRAM_WEBHOOK_SECRET,
     WEBAPP_URL,
 )
-from backend.utils_helper import TELEGRAM_API_URL, db, user_states
+from backend.utils_helper import db, user_states
 
 from .crud import (
     answer_callback_query,
@@ -44,6 +44,12 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
         Поддерживает реферальные ссылки формата /start ref_xxx.
         Обрабатывает токены внешней авторизации.
     """
+    # Верификация secret_token от Telegram
+    if TELEGRAM_WEBHOOK_SECRET:
+        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if secret != TELEGRAM_WEBHOOK_SECRET:
+            raise HTTPException(status_code=403, detail="Invalid webhook secret")
+
     try:
         # Получаем данные из запроса
         data = await request.json()
@@ -465,58 +471,3 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
-@router.get("/set-webhook")
-async def set_webhook(webhook_url: str) -> Dict[str, Any]:
-    """
-    Устанавливает вебхук для бота Telegram.
-
-    Args:
-        webhook_url: Полный URL для вебхука (должен включать https://)
-
-    Returns:
-        Словарь со статусом установки вебхука
-    """
-    try:
-        # URL для установки вебхука
-        url = f"{TELEGRAM_API_URL}/setWebhook"
-
-        # Данные для запроса
-        data = {
-            "url": webhook_url,
-            "allowed_updates": [
-                "message"
-            ],  # Ограничиваем типы обновлений только сообщениями
-        }
-
-        # Отправляем запрос на установку вебхука
-        response = requests.post(url, json=data)
-        result = response.json()
-
-        if result.get("ok"):
-            return {"status": "success", "result": result}
-        else:
-            return {"status": "error", "result": result}
-
-    except Exception as e:
-        logger.error(f"Ошибка при установке вебхука: {str(e)}", exc_info=True)
-        return {"status": "error", "message": str(e)}
-
-
-@router.get("/get-webhook-info")
-async def get_webhook_info() -> Dict[str, Any]:
-    """
-    Получает информацию о текущем вебхуке бота.
-
-    Returns:
-        Словарь с информацией о вебхуке
-    """
-    try:
-        url = f"{TELEGRAM_API_URL}/getWebhookInfo"
-        response = requests.get(url)
-        return response.json()
-
-    except Exception as e:
-        logger.error(
-            f"Ошибка при получении информации о вебхуке: {str(e)}", exc_info=True
-        )
-        return {"status": "error", "message": str(e)}
