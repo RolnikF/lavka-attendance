@@ -101,12 +101,16 @@ async def lifespan(app: FastAPI):
     await db.disconnect()
 
 
+import os as _os
+
+_docs_url = "/docs" if _os.getenv("ENVIRONMENT") != "production" else None
+
 app = FastAPI(
     lifespan=lifespan,
     title="MireApprove API",
     description="API для автоматизации учёта посещаемости МИРЭА",
     version="1.0.0",
-    docs_url="/docs",
+    docs_url=_docs_url,
     redoc_url=None,
 )
 
@@ -199,6 +203,7 @@ async def serve_frontend(full_path: str):
     return FileResponse("/app/static/index.html")
 
 
-logging.basicConfig(level=logging.DEBUG)
+_log_level = _os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _log_level, logging.INFO))
 if __name__ == "__main__":
     uvicorn.run("main:app", host="localhost", port=8000, reload=True, log_level="debug")

@@ -1,14 +1,18 @@
+import base64
+import hashlib
+import hmac
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 
+from cryptography.fernet import Fernet
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from backend.attendance import _handle_2fa_result, send_2fa_notification
+from backend.attendance import _handle_2fa_result, complete_2fa_login, send_2fa_notification
 from backend.auth import verify_init_data
-from backend.config import BOT_TOKEN
+from backend.config import BOT_TOKEN, TRUSTED_SERVICE_API_KEY
 from backend.mirea_api.get_cookies import TwoFactorRequired, get_cookies
 from backend.utils_helper import db
-
-from backend.attendance import complete_2fa_login
 
 from .schemas import (
     CredentialsResponse,
@@ -20,15 +24,42 @@ from .schemas import (
     TokenStatusResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/external-auth", tags=["external-auth"])
+
+def _derive_fernet_key(token: str) -> bytes:
+    """Derive a Fernet key from the auth token."""
+    digest = hashlib.sha256(token.encode()).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
+def _check_service_api_key(api_key: str) -> None:
+    """Validate the service API key using constant-time comparison."""
+    if not TRUSTED_SERVICE_API_KEY:
+        raise HTTPException(status_code=500, detail="Service API key not configured")
+    if not api_key or not hmac.compare_digest(api_key, TRUSTED_SERVICE_API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid service API key")
+
+
+def _check_token_expiration(token_data: dict) -> None:
+    """Check if token has expired."""
+    expires_at = token_data.get("expires_at")
+    if expires_at and expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Token expired")
 
 
 @router.post("/register", response_model=TokenRegisterResponse)
-async def register_token(request: TokenRegisterRequest):
+async def register_token(
+    request: TokenRegisterRequest,
+    x_service_api_key: str = Header(None, alias="X-Service-API-Key"),
+):
     """
     Endpoint для регистрации токена от стороннего сервиса.
-    Сторонний сервис генерирует JWT и регистрирует его здесь.
+    Требует X-Service-API-Key для аутентификации сервиса.
     """
+    _check_service_api_key(x_service_api_key)
+
     try:
         await db.connect()
 
@@ -58,17 +89,23 @@ async def register_token(request: TokenRegisterRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error registering token: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
 
 @router.get("/status/{token}", response_model=TokenStatusResponse)
-async def check_token_status(token: str):
+async def check_token_status(
+    token: str,
+    x_service_api_key: str = Header(None, alias="X-Service-API-Key"),
+):
     """
     Endpoint для проверки статуса токена (polling).
-    Сторонний сервис вызывает этот endpoint каждые несколько секунд.
+    Требует X-Service-API-Key для аутентификации сервиса.
     """
+    _check_service_api_key(x_service_api_key)
+
     try:
         await db.connect()
 
@@ -93,8 +130,11 @@ async def check_token_status(token: str):
                 status="pending", message="Waiting for user confirmation"
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error checking token status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -105,11 +145,16 @@ async def check_token_status(token: str):
 
 
 @router.delete("/reject/{token}")
-async def reject_token(token: str):
+async def reject_token(
+    token: str,
+    x_service_api_key: str = Header(None, alias="X-Service-API-Key"),
+):
     """
     Endpoint для отклонения токена.
-    Может использоваться если пользователь отклонил авторизацию.
+    Требует X-Service-API-Key для аутентификации сервиса.
     """
+    _check_service_api_key(x_service_api_key)
+
     try:
         await db.connect()
 
@@ -121,7 +166,7 @@ async def reject_token(token: str):
         if token_data["status"] != "pending":
             raise HTTPException(
                 status_code=400,
-                detail=f"Token already processed with status: {token_data['status']}",
+                detail="Token already processed",
             )
 
         await db.reject_external_token(token)
@@ -131,7 +176,8 @@ async def reject_token(token: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error rejecting token: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -163,9 +209,10 @@ async def verify_token(authorization: str = Header(None)):
         if not token_data:
             raise HTTPException(status_code=401, detail="Invalid token")
 
-        # Проверяем статус
+        # Проверяем статус и срок действия
         if token_data["status"] != "approved":
             raise HTTPException(status_code=401, detail="Token not approved")
+        _check_token_expiration(token_data)
 
         # Получаем информацию о пользователе
         user = await db.get_user_by_id(token_data["tg_userid"])
@@ -186,7 +233,8 @@ async def verify_token(authorization: str = Header(None)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error verifying token: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -227,6 +275,7 @@ async def get_credentials(
 
         if token_data["status"] != "approved":
             raise HTTPException(status_code=401, detail="Token not approved")
+        _check_token_expiration(token_data)
 
         # Определяем какого пользователя запрашиваем
         requester_tg_userid = token_data["tg_userid"]
@@ -259,11 +308,15 @@ async def get_credentials(
                 detail="User credentials not found. Please set up login and password first",
             )
 
-        # Возвращаем credentials (пароль уже расшифрован в db.get_user)
+        # Шифруем credentials токеном запрашивающего
+        fernet = Fernet(_derive_fernet_key(token))
+        encrypted_data = fernet.encrypt(
+            json.dumps({"l": user["login"], "p": user["hashed_password"]}).encode()
+        ).decode()
+
         return CredentialsResponse(
             status="success",
-            login=user["login"],
-            password=user["hashed_password"],  # уже расшифрованный
+            encrypted_data=encrypted_data,
             group_name=user.get("group_name"),
             message="Credentials retrieved successfully",
         )
@@ -271,7 +324,8 @@ async def get_credentials(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error getting credentials: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -310,6 +364,7 @@ async def get_mirea_token(
 
             if token_data["status"] != "approved":
                 raise HTTPException(status_code=401, detail="Token not approved")
+            _check_token_expiration(token_data)
 
             tg_userid = token_data["tg_userid"]
 
@@ -385,6 +440,7 @@ async def get_mirea_token(
             raise
         except Exception as e:
             error_msg = str(e)
+            logger.error(f"Error obtaining MIREA cookies: {error_msg}", exc_info=True)
             if "логин" in error_msg.lower() or "пароль" in error_msg.lower():
                 raise HTTPException(
                     status_code=401,
@@ -393,13 +449,14 @@ async def get_mirea_token(
             else:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to obtain MIREA cookies: {error_msg}",
+                    detail="Failed to obtain MIREA cookies",
                 )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in get_mirea_token: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -436,6 +493,7 @@ async def submit_totp(
 
         if token_data["status"] != "approved":
             raise HTTPException(status_code=401, detail="Token not approved")
+        _check_token_expiration(token_data)
 
         tg_userid = token_data["tg_userid"]
 
@@ -477,6 +535,7 @@ async def submit_totp(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in submit_totp: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()

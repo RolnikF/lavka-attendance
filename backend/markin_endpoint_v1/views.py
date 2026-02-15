@@ -72,7 +72,7 @@ async def send_approve(data: SendApprove) -> Dict[str, Any]:
             status="failure",
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -154,28 +154,56 @@ async def start_mass_marking(data: MassApproveData) -> Dict[str, str]:
             status="failure",
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
 
 
 @router.get("/get_marking_status/{session_id}")
-async def get_marking_status(session_id: str) -> Dict[str, Any]:
+async def get_marking_status(
+    session_id: str,
+    initData: str = None,
+    authorization: str = None,
+) -> Dict[str, Any]:
     """
     Получает текущий статус процесса массовой отметки.
 
     Args:
         session_id: Идентификатор сессии
+        initData: Данные авторизации Telegram
 
     Returns:
         Словарь со статусом и прогрессом отметки
     """
+    # Аутентификация
+    tg_user_id = None
+    if initData:
+        try:
+            tg_user_id = verify_init_data(initData, BOT_TOKEN)
+        except ValueError as err:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err))
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
     if session_id not in marking_sessions:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Сессия отметки не найдена"
         )
 
-    # Возвращаем текущий статус сессии
-    return marking_sessions[session_id]
+    session = marking_sessions[session_id]
+
+    # Проверяем, что запрос от владельца сессии
+    if session["owner_id"] != tg_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нет доступа к этой сессии отметки",
+        )
+
+    # Возвращаем статус без внутреннего токена
+    safe_session = {k: v for k, v in session.items() if k != "token"}
+    return safe_session
 
 
 @router.post("/continue_marking")
@@ -250,5 +278,5 @@ async def continue_marking(data: ContinueMarkingData) -> Dict[str, Any]:
             status="failure",
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )

@@ -16,11 +16,12 @@ export const isTelegramWebAppAvailable = () => {
  */
 export const getInitData = () => {
     if (!isTelegramWebAppAvailable()) {
+        if (import.meta.env.MODE === 'production') {
+            throw new Error('Telegram WebApp is required');
+        }
         console.warn('Telegram WebApp is not available, using test data');
-        // Возвращаем тестовые данные для разработки
         return 'test_init_data_for_development';
     }
-    console.log('Получены initData из Telegram WebApp');
     return window.Telegram.WebApp.initData;
 };
 

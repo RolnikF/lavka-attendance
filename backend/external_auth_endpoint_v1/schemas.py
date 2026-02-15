@@ -71,10 +71,9 @@ class SubmitTotpResponse(BaseModel):
 
 
 class CredentialsResponse(BaseModel):
-    """Ответ с логином и паролем MIREA для внешнего сервиса"""
+    """Ответ с зашифрованными credentials MIREA для внешнего сервиса"""
 
     status: str
-    login: Optional[str] = None
-    password: Optional[str] = None  # расшифрованный пароль
+    encrypted_data: Optional[str] = None  # Fernet-encrypted JSON {"l": login, "p": password}
     group_name: Optional[str] = None
     message: str

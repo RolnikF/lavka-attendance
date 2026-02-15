@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import Header, HTTPException, Query, status
 
 from backend.auth import verify_init_data
@@ -35,6 +37,13 @@ async def init_data(initData: str = Query(None), authorization: str = Header(Non
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="External auth token not approved",
+                    )
+
+                # Check token expiration
+                if token_data.get("expires_at") and token_data["expires_at"] < datetime.now(timezone.utc):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="External auth token expired",
                     )
 
                 return token_data["tg_userid"]

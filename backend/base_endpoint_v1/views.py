@@ -1,4 +1,5 @@
 import hmac
+import logging
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -6,6 +7,8 @@ from fastapi import APIRouter, Header, HTTPException, status
 from backend.auth import verify_init_data
 from backend.config import BOT_TOKEN, TRUSTED_SERVICE_API_KEY
 from backend.utils_helper import db, log_user_action
+
+logger = logging.getLogger(__name__)
 
 from .crud import (
     _check_user,
@@ -74,9 +77,10 @@ async def check_user(
         except HTTPException:
             raise
         except Exception as e:
+            logger.error(f"Error in check_user (Bearer auth): {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=str(e)
+                detail="Internal server error"
             )
         finally:
             await db.disconnect()
@@ -128,8 +132,9 @@ async def check_user(
         }
 
     except Exception as e:
+        logger.error(f"Error in check_user: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -176,8 +181,9 @@ async def edit_ac(data: EditAllowConfirm) -> Dict[str, str]:
             details={"new_status": data.allowConfirm, "error": str(ex)},
             status="failure",
         )
+        logger.error(f"Error in edit_allow_confirm: {ex}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -200,7 +206,8 @@ async def delete_user_by_id(data: DeleteUser) -> Dict[str, Any]:
             return {"status": True}
         return {"error": result.error}
     except Exception as e:
-        return {"error": str(e)}
+        logger.error(f"Error in delete_user: {e}", exc_info=True)
+        return {"error": "Internal server error"}
     finally:
         await db.disconnect()
 
@@ -221,8 +228,9 @@ async def get_university_status(initData: str) -> Dict[str, Any]:
         result = await _get_university_status(db, tg_user_id)
         return result
     except Exception as e:
+        logger.error(f"Error in university_status: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -244,8 +252,9 @@ async def get_group_university_status(initData: str) -> Dict[str, Any]:
         result = await _get_group_university_status(db, tg_user_id)
         return result
     except Exception as e:
+        logger.error(f"Error in group_university_status: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()

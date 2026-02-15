@@ -200,7 +200,8 @@ async def add_nfc_card(request: NfcCardAddRequest, tg_userid: int = Depends(init
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in NFC endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -264,7 +265,8 @@ async def get_nfc_cards(tg_userid: int = Depends(init_data)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in NFC endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -307,7 +309,8 @@ async def delete_nfc_card(card_id: int, tg_userid: int = Depends(init_data)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in NFC endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -348,7 +351,8 @@ async def get_group_users_for_nfc(tg_userid: int = Depends(init_data)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in NFC endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()
 
@@ -469,14 +473,16 @@ async def get_mirea_cookies_for_user(
                     status_code=401, detail="Invalid MIREA credentials for target user"
                 )
             else:
+                logger.error(f"Failed to obtain MIREA cookies: {error_msg}", exc_info=True)
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to obtain MIREA cookies: {error_msg}",
+                    detail="Failed to obtain MIREA cookies",
                 )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in NFC endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         await db.disconnect()

@@ -49,6 +49,15 @@ COPY backend/ /app/backend/
 COPY start-prod.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
+# Создаём непривилегированного пользователя
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+
+# Создаём директорию для логов с правильными правами
+RUN mkdir -p /app/marking_logs && chown -R appuser:appgroup /app/marking_logs
+
+# Переключаемся на непривилегированного пользователя
+USER appuser
+
 # Открываем порт для бэкенда
 EXPOSE 8001
 

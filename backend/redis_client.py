@@ -224,8 +224,8 @@ class RedisClient:
 
         except Exception as e:
             logger.error(f"Rate limit check error: {e}")
-            # Fail open - allow request if Redis fails
-            return True, max_requests
+            # Fail closed - deny request if Redis fails (security-critical)
+            return False, 0
 
     # Schedule cache
 

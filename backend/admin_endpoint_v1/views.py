@@ -106,7 +106,7 @@ async def create_user_new_part_1(data: CreateUserNew) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in create_user: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
 
     finally:
@@ -336,7 +336,7 @@ async def submit_otp(data: SubmitOtpCode) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in submit_otp for {tg_user_id}: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -368,7 +368,7 @@ async def check_totp_session(initData: str) -> Dict[str, Any]:
             f"Error in check_totp_session for {tg_user_id}: {e}", exc_info=True
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -400,7 +400,7 @@ async def select_otp_credential(data: SelectOtpCredential) -> Dict[str, Any]:
             f"Error in select_otp_credential for {tg_user_id}: {e}", exc_info=True
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()

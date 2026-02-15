@@ -22,7 +22,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mireapprove-redis
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
     volumes:
       - redis_data:/data
     # ports:
@@ -58,7 +58,10 @@ services:
       - DONATE_URL=${DONATE_URL:-}
       - SUPPORT_USERNAME=${SUPPORT_USERNAME:-}
       - DONATE_BOT_USERNAME=${DONATE_BOT_USERNAME:-}
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
       - "8001:8001"
     restart: unless-stopped

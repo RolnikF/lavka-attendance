@@ -1,3 +1,4 @@
+import hmac
 import logging
 from typing import Any, Dict
 
@@ -46,8 +47,8 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
     """
     # Верификация secret_token от Telegram
     if TELEGRAM_WEBHOOK_SECRET:
-        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-        if secret != TELEGRAM_WEBHOOK_SECRET:
+        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not hmac.compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
             raise HTTPException(status_code=403, detail="Invalid webhook secret")
 
     try:
@@ -468,6 +469,6 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
         }  # Просто подтверждаем получение для всех остальных сообщений
     except Exception as e:
         logger.error(f"Ошибка в обработке вебхука: {str(e)}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": "Internal webhook processing error"}
 
 

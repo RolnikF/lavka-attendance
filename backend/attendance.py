@@ -744,7 +744,7 @@ async def _get_user_schedule(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 async def get_lesson_attendance_info(
@@ -859,5 +859,5 @@ async def get_lesson_attendance_info(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Ошибка получения данных о посещаемости: {str(e)}"
+            status_code=500, detail="Ошибка получения данных о посещаемости"
         )

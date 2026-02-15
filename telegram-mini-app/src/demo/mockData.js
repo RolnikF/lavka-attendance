@@ -242,6 +242,10 @@ export const DEMO_MARKING_SESSION = {
  * Проверяет, включён ли демо-режим
  */
 export function isDemoMode() {
+  // В продакшене демо-режим всегда выключен
+  if (import.meta.env.MODE === 'production') {
+    return false;
+  }
   // Проверяем URL параметр
   if (typeof window !== 'undefined') {
     const urlParams = new URLSearchParams(window.location.search);

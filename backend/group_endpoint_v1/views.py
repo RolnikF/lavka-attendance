@@ -108,7 +108,7 @@ async def get_group_users(initData: str):
             status="failure",
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -181,7 +181,7 @@ async def get_other_group_users(initData: str, group_name: str):
             status="failure",
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -201,7 +201,7 @@ async def get_available_groups(initData: str = Depends(init_data)):
         return {"groups": groups}
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()

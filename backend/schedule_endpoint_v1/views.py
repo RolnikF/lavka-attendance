@@ -58,7 +58,7 @@ async def get_schedule(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -165,7 +165,7 @@ async def get_lesson_attendance(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -222,7 +222,7 @@ async def get_month_schedule_cache(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -277,7 +277,7 @@ async def get_lessons_cost_endpoint(
     except Exception as e:
         logger.exception(f"Ошибка: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
@@ -359,7 +359,7 @@ async def get_lessons_calendar_endpoint(
     except Exception as e:
         logger.exception(f"Ошибка: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
         )
     finally:
         await db.disconnect()
