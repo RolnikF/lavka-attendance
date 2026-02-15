@@ -47,8 +47,6 @@ APP_PORT="8001"
 POSTGRES_PASSWORD=""
 ENCRYPTION_KEY=""
 SERVER_IP=""
-NEWS_CHANNEL_URL=""
-DONATE_URL=""
 CURRENT_STEP=0
 
 # ===== UI ФУНКЦИИ =====
@@ -193,8 +191,6 @@ APP_PORT="$APP_PORT"
 POSTGRES_PASSWORD="$POSTGRES_PASSWORD"
 ENCRYPTION_KEY="$ENCRYPTION_KEY"
 TELEGRAM_WEBHOOK_SECRET="$TELEGRAM_WEBHOOK_SECRET"
-NEWS_CHANNEL_URL="$NEWS_CHANNEL_URL"
-DONATE_URL="$DONATE_URL"
 SERVER_IP="$SERVER_IP"
 EOF
     log "State saved at step $step"
@@ -664,18 +660,6 @@ configure_admin() {
     print_success "Администратор: $SUPER_ADMIN"
 }
 
-configure_optional() {
-    print_box "ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ (опционально)" "⚙️"
-
-    echo -e "  ${DIM}Нажмите Enter чтобы пропустить${NC}"
-    echo ""
-
-    ask_input "Ссылка на канал новостей" "" "NEWS_CHANNEL_URL"
-    ask_input "Ссылка на донат" "" "DONATE_URL"
-
-    echo ""
-}
-
 # ===== SSL =====
 
 obtain_ssl_certificate() {
@@ -967,8 +951,10 @@ APP_PORT=$APP_PORT
 
 # External URLs
 WEBAPP_URL=https://$DOMAIN/
-${NEWS_CHANNEL_URL:+NEWS_CHANNEL_URL=$NEWS_CHANNEL_URL}
-${DONATE_URL:+DONATE_URL=$DONATE_URL}
+NEWS_CHANNEL_URL=https://t.me/yoattend
+DONATE_URL=https://t.me/paketlavka_robot
+SUPPORT_USERNAME=lavkamaster45
+DONATE_BOT_USERNAME=paketlavka_robot
 IP_CHECK_URL=https://api.ipify.org?format=json
 
 # Frontend
@@ -1276,7 +1262,6 @@ main() {
         wait_for_dns
         configure_telegram
         configure_admin
-        configure_optional
 
         # Генерируем секреты
         generate_postgres_password

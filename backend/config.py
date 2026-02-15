@@ -46,10 +46,10 @@ ADMIN_LEVEL_SUPER = 3  # Super admin (full access)
 
 # URLs
 WEBAPP_URL = os.getenv("WEBAPP_URL", "")
-NEWS_CHANNEL_URL = os.getenv("NEWS_CHANNEL_URL", "")
-DONATE_URL = os.getenv("DONATE_URL", "")
-SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "")
-DONATE_BOT_USERNAME = os.getenv("DONATE_BOT_USERNAME", "")
+NEWS_CHANNEL_URL = os.getenv("NEWS_CHANNEL_URL", "https://t.me/yoattend")
+DONATE_URL = os.getenv("DONATE_URL", "https://t.me/paketlavka_robot")
+SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "lavkamaster45")
+DONATE_BOT_USERNAME = os.getenv("DONATE_BOT_USERNAME", "paketlavka_robot")
 
 # Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
