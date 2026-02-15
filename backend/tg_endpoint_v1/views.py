@@ -7,21 +7,17 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.admin_endpoint_v1.crud import _create_user_part_1_new
 from backend.config import (
     BOT_USERNAME,
-    DONATE_BOT_USERNAME,
     DONATE_URL,
     NEWS_CHANNEL_URL,
     TELEGRAM_WEBHOOK_SECRET,
     WEBAPP_URL,
 )
-from backend.utils_helper import db, user_states
+from backend.utils_helper import db
 
 from .crud import (
-    answer_callback_query,
-    answer_pre_checkout_query,
     get_telegram_file,
     is_mirea_totp,
     parse_totp_qr,
-    send_telegram_invoice,
     send_telegram_message,
 )
 
@@ -127,7 +123,7 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
                             [
                                 {
                                     "text": "🤝 Поддержать проект",
-                                    "callback_data": "donate_stars",
+                                    "url": DONATE_URL,
                                 }
                             ],
                         ]
@@ -141,33 +137,21 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
                     return {"ok": True}
                 # Проверяем, есть ли параметр donate в команде /start
                 elif "donate" in text.strip().lower():
-                    # Выполняем логику команды /donate
                     donate_info_message = (
                         "🙏 Спасибо за желание поддержать проект!\n\n"
-                        "Ваша поддержка помогает нам развивать сервис и делать его лучше. "
-                        "Вы можете пожертвовать любую сумму, которая будет конвертирована в Telegram Stars.\n\n"
-                        f"Иные способы поддержки здесь: @{DONATE_BOT_USERNAME}"
+                        "Ваша поддержка помогает нам развивать сервис и делать его лучше.\n\n"
+                        f"Поддержать: {DONATE_URL}"
                     )
-
-                    # Клавиатура с кнопкой для пожертвования через Telegram Stars
                     donate_button = {
                         "inline_keyboard": [
                             [
                                 {
-                                    "text": "Пожертвовать Telegram Stars",
-                                    "callback_data": "donate_stars",
-                                }
-                            ],
-                            [
-                                {
-                                    "text": "СБП / Карта",
+                                    "text": "🤝 Поддержать проект",
                                     "url": DONATE_URL,
                                 }
                             ],
                         ]
                     }
-
-                    # Отправляем информационное сообщение с кнопкой
                     await send_telegram_message(
                         chat_id, donate_info_message, donate_button
                     )
@@ -186,7 +170,7 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
                             [
                                 {
                                     "text": "🤝 Поддержать проект",
-                                    "callback_data": "donate_stars",
+                                    "url": DONATE_URL,
                                 }
                             ],
                         ]
@@ -280,33 +264,21 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
 
             # Обрабатываем команду /donate
             elif text.strip().lower() == "/donate":
-                # Создаем сообщение о пожертвовании и кнопку
                 donate_info_message = (
                     "🙏 Спасибо за желание поддержать проект!\n\n"
-                    "Ваша поддержка помогает нам развивать сервис и делать его лучше. "
-                    "Вы можете пожертвовать любую сумму, которая будет конвертирована в Telegram Stars.\n\n"
-                    f"Иные способы поддержки здесь: @{DONATE_BOT_USERNAME}"
+                    "Ваша поддержка помогает нам развивать сервис и делать его лучше.\n\n"
+                    f"Поддержать: {DONATE_URL}"
                 )
-
-                # Клавиатура с кнопкой для пожертвования через Telegram Stars
                 donate_button = {
                     "inline_keyboard": [
                         [
                             {
-                                "text": "Пожертвовать Telegram Stars",
-                                "callback_data": "donate_stars",
-                            }
-                        ],
-                        [
-                            {
-                                "text": "СБП / Карта",
+                                "text": "🤝 Поддержать проект",
                                 "url": DONATE_URL,
                             }
                         ],
                     ]
                 }
-
-                # Отправляем информационное сообщение с кнопкой
                 await send_telegram_message(chat_id, donate_info_message, donate_button)
                 return {"ok": True}
             # Обрабатываем фото с QR-кодом для автоматического TOTP
@@ -398,71 +370,9 @@ async def telegram_webhook(request: Request) -> Dict[str, Any]:
 
                     return {"ok": True}
 
-            elif (
-                chat_id in user_states
-                and user_states[chat_id] == "awaiting_donation_amount"
-                and text.strip().isdigit()
-            ):
-                # Получаем сумму в рублях
-                amount_rub = int(text.strip())
-
-                # Конвертируем рубли в Telegram Stars
-                # Точный курс: 1.89 руб = 1 Star
-                star_amount = max(1, int(amount_rub / 1.68))  # Минимум 1 Star
-                # Создаем и отправляем счет
-                await send_telegram_invoice(
-                    chat_id,
-                    {
-                        "title": "Поддержка проекта",
-                        "description": f"Пожертвование {amount_rub} рублей ({star_amount} Telegram Stars)",
-                        "payload": f"donate_{chat_id}_{amount_rub}",
-                        "provider_token": "",  # Пустая строка для платежей в Telegram Stars
-                        "currency": "XTR",  # Код для Telegram Stars
-                        "prices": [
-                            {
-                                "label": "Пожертвование",
-                                "amount": star_amount,  # Для Telegram Stars это прямое количество звезд
-                            }
-                        ],
-                    },
-                )
-
-                # Сбрасываем состояние пользователя
-                del user_states[chat_id]
-
-                return {"ok": True}
-
-            # Обрабатываем callback-запросы от inline-кнопок
-        elif "callback_query" in data:
-            callback_query = data["callback_query"]
-            callback_chat_id = (
-                callback_query.get("message", {}).get("chat", {}).get("id")
-            )
-            callback_data = callback_query.get("data", "")
-
-            # Если нажата кнопка пожертвования через Telegram Stars
-            if callback_data == "donate_stars":
-                # Отправляем запрос о сумме доната
-                donate_message = "Пожалуйста, укажите сумму в рублях, которую вы хотели бы пожертвовать:"
-                await send_telegram_message(callback_chat_id, donate_message)
-
-                # Сохраняем состояние пользователя (ожидание суммы доната)
-                user_states[callback_chat_id] = "awaiting_donation_amount"
-
-                # Отвечаем на callback запрос, чтобы убрать загрузку с кнопки
-                await answer_callback_query(callback_query.get("id", ""))
-
-                return {"ok": True}
-
-        # ДОБАВЛЯЕМ НОВЫЙ ОБРАБОТЧИК: Обрабатываем pre_checkout_query
-        elif "pre_checkout_query" in data:
-            pre_checkout_query = data["pre_checkout_query"]
-            query_id = pre_checkout_query.get("id", "")
-
-            # Отвечаем на pre_checkout_query, подтверждая, что всё в порядке
-            await answer_pre_checkout_query(query_id)
-
-            return {"ok": True}
+        return {
+            "ok": True
+        }  # Неизвестное текстовое сообщение
 
         return {
             "ok": True
