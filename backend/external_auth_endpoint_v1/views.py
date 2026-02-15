@@ -68,10 +68,12 @@ async def register_token(
         if existing_token:
             raise HTTPException(status_code=400, detail="Token already exists")
 
-        # Вычисляем время истечения
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            minutes=request.expires_in_minutes
-        )
+        # Вычисляем время истечения (0 = бессрочный)
+        expires_at = None
+        if request.expires_in_minutes > 0:
+            expires_at = datetime.now(timezone.utc) + timedelta(
+                minutes=request.expires_in_minutes
+            )
 
         # Создаем токен в БД
         await db.create_external_token(
@@ -83,7 +85,7 @@ async def register_token(
         return TokenRegisterResponse(
             status="success",
             token=request.token,
-            expires_at=expires_at.isoformat(),
+            expires_at=expires_at.isoformat() if expires_at else None,
             message="Token registered successfully. User should send this token to Telegram bot.",
         )
     except HTTPException:

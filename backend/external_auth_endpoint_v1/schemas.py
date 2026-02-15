@@ -8,7 +8,7 @@ class TokenRegisterRequest(BaseModel):
 
     token: str
     service_name: Optional[str] = None
-    expires_in_minutes: int = 10  # время жизни токена в минутах
+    expires_in_minutes: int = 0  # 0 = бессрочный токен
 
 
 class TokenRegisterResponse(BaseModel):
@@ -16,7 +16,7 @@ class TokenRegisterResponse(BaseModel):
 
     status: str
     token: str
-    expires_at: str
+    expires_at: Optional[str] = None
     message: str
 
 
