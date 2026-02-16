@@ -1,9 +1,0 @@
-node_modules/
-dist/
-*.xpi
-*.zip
-.env
-.DS_Store
-*.log
-.idea/
-.vscode/
