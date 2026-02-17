@@ -74,9 +74,19 @@ ME_INFO_TYPEDEF: Dict[str, Any] = {
                         "type": "message",
                         "message_typedef": {"1": {"type": "string"}}  # Отчество
                     },
-                    "5": {"type": "message"},  # claims (repeated) - роли пользователя
+                    "5": {  # claims (repeated) - роли и feature flags
+                        "type": "message",
+                        "seen_repeated": True,
+                        "message_typedef": {
+                            "1": {"type": "string"},  # claim type URL
+                            "2": {"type": "string"},  # claim value
+                        }
+                    },
                     "6": {"type": "string"},  # email
-                    "7": {"type": "message"},  # preferences (JSON string)
+                    "7": {  # preferences (JSON)
+                        "type": "message",
+                        "message_typedef": {"1": {"type": "string"}}
+                    },
                 }
             },
             "2": {"type": "string"},  # logout URL
@@ -165,17 +175,32 @@ VISITING_LOGS_TYPEDEF: Dict[str, Any] = {
                 "type": "message",
                 "message_typedef": {
                     "1": {"type": "string"},  # log UUID
-                    "2": {"type": "string"},  # group name (ИКБО-01-23)
-                    "4": {"type": "string"},  # semester UUID
+                    "2": {"type": "string"},  # group name (БСБО-31-24)
+                    "3": {"type": "int"},     # boolean flag
+                    "5": {  # некий объект с двумя int
+                        "type": "message",
+                        "message_typedef": {
+                            "1": {"type": "int"},
+                            "2": {"type": "int"},
+                        }
+                    },
                     "6": {
                         "type": "message",
                         "message_typedef": {
                             "1": {"type": "string"},  # semester UUID
-                            "2": {"type": "string"},  # semester name (Осень 25-26)
+                            "2": {"type": "string"},  # semester name (Весна 25-26)
                             "3": {"type": "message", "message_typedef": {"1": {"type": "int"}}},  # start date
                             "4": {"type": "message", "message_typedef": {"1": {"type": "int"}}},  # end date
                         }
-                    }
+                    },
+                    "8": {"type": "message", "message_typedef": {}},  # empty
+                    "9": {  # доп. информация
+                        "type": "message",
+                        "message_typedef": {
+                            "1": {"type": "string"},
+                            "2": {"type": "int"},
+                        }
+                    },
                 }
             },
             "2": {"type": "int"},
@@ -183,9 +208,64 @@ VISITING_LOGS_TYPEDEF: Dict[str, Any] = {
             "4": {"type": "string"},  # human UUID
         }
     },
-    "2": {
+    "2": {  # Student-log pairs (repeated)
         "type": "message",
         "seen_repeated": True,
+        "message_typedef": {
+            "1": {  # Student info
+                "type": "message",
+                "message_typedef": {
+                    "1": {  # Person
+                        "type": "message",
+                        "message_typedef": {
+                            "1": {"type": "string"},  # UUID
+                            "2": {"type": "string"},  # Имя
+                            "3": {"type": "string"},  # Фамилия
+                            "4": {
+                                "type": "message",
+                                "message_typedef": {"1": {"type": "string"}}  # Отчество
+                            },
+                        }
+                    },
+                    "2": {"type": "string"},  # human UUID
+                    "3": {"type": "string"},  # student ID (24Б0645)
+                }
+            },
+            "2": {  # Log info (same structure as field 1.1)
+                "type": "message",
+                "message_typedef": {
+                    "1": {"type": "string"},  # log UUID
+                    "2": {"type": "string"},  # group name
+                    "3": {"type": "int"},
+                    "5": {
+                        "type": "message",
+                        "message_typedef": {
+                            "1": {"type": "int"},
+                            "2": {"type": "int"},
+                        }
+                    },
+                    "6": {
+                        "type": "message",
+                        "message_typedef": {
+                            "1": {"type": "string"},
+                            "2": {"type": "string"},
+                            "3": {"type": "message", "message_typedef": {"1": {"type": "int"}}},
+                            "4": {"type": "message", "message_typedef": {"1": {"type": "int"}}},
+                        }
+                    },
+                    "8": {"type": "message", "message_typedef": {}},
+                    "9": {
+                        "type": "message",
+                        "message_typedef": {
+                            "1": {"type": "string"},
+                            "2": {"type": "int"},
+                        }
+                    },
+                }
+            },
+            "3": {"type": "int"},
+            "4": {"type": "int"},
+        }
     }
 }
 
