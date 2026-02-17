@@ -51,9 +51,31 @@ async def _check_user(db: DBModel, tg_user_id: int) -> CheckUserResult:
 
         user_info: str = await get_us_info(db, tg_user_id, user_agent)
 
+        # Сохраняем FIO в БД для будущего fallback
+        if user_info and user_info.strip():
+            try:
+                await db.update_user(tg_user_id, fio=user_info.strip())
+            except Exception:
+                pass  # Не критично если не удалось сохранить
+
         return CheckUserSuccess(user_info=info_from_db, fio=user_info, is_valid=True)
 
     except EmailCodeRequiredError:
+        # Если у пользователя уже есть куки (например, только что прошёл email верификацию),
+        # но get_me_info вернул неожиданный формат → не зацикливаем на повторный email код.
+        # Используем данные из БД как fallback.
+        try:
+            cookie_record = await db.get_cookie(tg_user_id)
+            if cookie_record and cookie_record.get("cookies"):
+                fio = (info_from_db.get("fio") or info_from_db.get("login") or "")
+                logger.info(
+                    f"Email code required but user {tg_user_id} has cookies, "
+                    f"using DB fallback FIO: {fio!r}"
+                )
+                return CheckUserSuccess(user_info=info_from_db, fio=fio, is_valid=True)
+        except Exception as fallback_err:
+            logger.debug(f"Fallback cookie check failed for {tg_user_id}: {fallback_err}")
+
         logger.info(f"Email code required for user {tg_user_id}")
         return CheckUserNeedsEmailCode()
 

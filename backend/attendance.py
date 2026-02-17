@@ -229,6 +229,19 @@ async def get_us_info(db, tgID, user_agent=None, notify_on_2fa=False):
             # Проверяем, не требуется ли ввод email кода
             if isinstance(cookies_result, EmailCodeRequired):
                 logger.info(f"Email code required for user {tgID} during get_us_info")
+
+                # Если у пользователя уже были куки, значит он авторизован,
+                # но get_me_info вернул неожиданный ответ. Пробуем FIO из БД,
+                # чтобы не зацикливать на повторный ввод email кода.
+                if cookies:
+                    user_by_id = await db.get_user_by_id(tgID)
+                    saved_fio = user_by_id.get("fio") if user_by_id else None
+                    if saved_fio:
+                        logger.info(
+                            f"Using saved FIO for {tgID} instead of requiring email code"
+                        )
+                        return saved_fio
+
                 await _handle_email_code_result(
                     db, tgID, cookies_result, user_agent, source="refresh"
                 )

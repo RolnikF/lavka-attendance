@@ -138,11 +138,9 @@ const App = () => {
       setScreen('main');
     } catch (error) {
       const errorStr = String(error);
-      if (errorStr.includes("Требуется ввод кода из email") || errorStr.includes("email code required")) {
-        setScreen('emailCode');
-      } else {
-        setError(errorStr || "Ошибка загрузки данных после подтверждения email");
-      }
+      // После успешной отправки email кода НЕ возвращаемся на экран ввода кода,
+      // чтобы не создавать бесконечный цикл
+      setError(errorStr || "Ошибка загрузки данных после подтверждения email");
     } finally {
       setLoading(false);
     }
