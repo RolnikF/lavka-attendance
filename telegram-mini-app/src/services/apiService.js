@@ -124,6 +124,15 @@ const apiService = {
         }
 
 
+        // Проверяем структурированные флаги ошибок от backend
+        if (data.needs_login) {
+            throw new Error("Введите Логин и Пароль");
+        }
+
+        if (data.needs_email_code) {
+            throw new Error("Требуется ввод кода из email");
+        }
+
         // Проверяем на наличие сообщений об ошибках даже в успешном ответе
         if (data.detail === "Введите Логин и Пароль" ||
             data.message === "Введите Логин и Пароль" ||
@@ -152,9 +161,9 @@ const apiService = {
             throw new Error("Пользователь не существует");
         }
 
-        // Проверяем на требование email кода
-        if (data.needs_email_code) {
-            throw new Error("Требуется ввод кода из email");
+        // Если backend вернул явную ошибку (ok: false), показываем сообщение
+        if (data.ok === false) {
+            throw new Error(data.msg || "Ошибка проверки пользователя");
         }
 
         // Проверяем на наличие обязательных полей

@@ -82,11 +82,15 @@ async def _check_user(db: DBModel, tg_user_id: int) -> CheckUserResult:
     except Exception as ex:
         logger.error(f"Error checking user {tg_user_id}: {ex}", exc_info=True)
 
-        # Если get_us_info упал, но у пользователя есть логин и группа в БД —
-        # используем данные из БД как fallback, чтобы приложение работало
+        # Если get_us_info упал, но у пользователя есть логин в БД —
+        # используем данные из БД как fallback, чтобы приложение работало.
+        # group_name может быть пустым (не успел сохраниться), поэтому
+        # не требуем его наличия.
         try:
-            if info_from_db and info_from_db.get("login") and info_from_db.get("group_name"):
+            if info_from_db and info_from_db.get("login"):
                 fio = (info_from_db.get("fio") or info_from_db.get("login") or "")
+                if not info_from_db.get("group_name"):
+                    info_from_db["group_name"] = "Не определена"
                 logger.info(
                     f"get_us_info failed for user {tg_user_id}, "
                     f"using DB fallback: fio={fio!r}, group={info_from_db.get('group_name')!r}"
