@@ -152,6 +152,11 @@ const apiService = {
             throw new Error("Пользователь не существует");
         }
 
+        // Проверяем на требование email кода
+        if (data.needs_email_code) {
+            throw new Error("Требуется ввод кода из email");
+        }
+
         // Проверяем на требование 2FA
         if (data.needs_2fa) {
             throw new Error("Требуется ввод кода 2FA");

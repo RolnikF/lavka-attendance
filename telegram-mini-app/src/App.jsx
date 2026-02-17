@@ -6,6 +6,7 @@ import PageTransition from './components/PageTransition';
 import MainScreen from './components/MainScreen';
 import LoginForm from './components/LoginForm';
 import OtpForm from './components/OtpForm';
+import EmailCodeForm from './components/EmailCodeForm';
 import MarkMultipleScreen from './components/MarkMultipleScreen';
 import MassMarkingProcess from './components/MassMarkingProcess';
 import PointsScreen from './components/PointsScreen';
@@ -21,7 +22,7 @@ const App = () => {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [screen, setScreen] = useState('main'); // 'main', 'login', 'otp', 'markMultiple', 'marking', 'unauthorized', 'points', 'admin', 'schedule', 'groupStatus'
+  const [screen, setScreen] = useState('main'); // 'main', 'login', 'otp', 'emailCode', 'markMultiple', 'marking', 'unauthorized', 'points', 'admin', 'schedule', 'groupStatus'
   const [initData, setInitData] = useState('');
   const [markingData, setMarkingData] = useState(null);
   const [hasTotpSecret, setHasTotpSecret] = useState(false);
@@ -97,8 +98,13 @@ const App = () => {
       // Преобразуем объект ошибки в строку для более надежной проверки
       const errorStr = String(error);
 
+      // Проверяем требование email кода
+      if (errorStr.includes("Требуется ввод кода из email") ||
+          errorStr.includes("email code required")) {
+        setScreen('emailCode');
+      }
       // Проверяем требование 2FA
-      if (errorStr.includes("Требуется ввод кода 2FA") ||
+      else if (errorStr.includes("Требуется ввод кода 2FA") ||
           errorStr.includes("2FA required")) {
         setScreen('otp');
       }
@@ -129,6 +135,34 @@ const App = () => {
   const handleLoginSuccess = (userData) => {
     setUserData(userData);
     setScreen('main');
+  };
+
+  // Function to handle successful email code - refetch user data
+  const handleEmailCodeSuccess = async () => {
+    setLoading(true);
+    try {
+      const data = await apiService.checkUserAuth(initData);
+      setUserData(data);
+      setHasTotpSecret(data.has_totp_secret || false);
+      setScreen('main');
+    } catch (error) {
+      const errorStr = String(error);
+      // After email code, might still need OTP
+      if (errorStr.includes("Требуется ввод кода 2FA") || errorStr.includes("2FA required")) {
+        setScreen('otp');
+      } else if (errorStr.includes("Требуется ввод кода из email") || errorStr.includes("email code required")) {
+        setScreen('emailCode');
+      } else {
+        setError(errorStr || "Ошибка загрузки данных после подтверждения email");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Function to handle email code → OTP transition
+  const handleEmailCodeRequires2fa = () => {
+    setScreen('otp');
   };
 
   // Function to handle successful OTP - refetch user data
@@ -265,6 +299,18 @@ const App = () => {
           return (
             <PageTransition key="login">
               <LoginForm initData={initData} onLoginSuccess={handleLoginSuccess} />
+            </PageTransition>
+          );
+
+        case 'emailCode':
+          return (
+            <PageTransition key="emailCode">
+              <EmailCodeForm
+                initData={initData}
+                onSuccess={handleEmailCodeSuccess}
+                onRequires2fa={handleEmailCodeRequires2fa}
+                onBack={handleBackToMain}
+              />
             </PageTransition>
           );
 

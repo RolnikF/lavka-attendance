@@ -8,10 +8,16 @@ from datetime import datetime, timedelta, timezone
 from cryptography.fernet import Fernet
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from backend.attendance import _handle_2fa_result, complete_2fa_login, send_2fa_notification
+from backend.attendance import (
+    _handle_2fa_result,
+    _handle_email_code_result,
+    complete_2fa_login,
+    send_2fa_notification,
+    send_email_code_notification,
+)
 from backend.auth import verify_init_data
 from backend.config import BOT_TOKEN, TRUSTED_SERVICE_API_KEY
-from backend.mirea_api.get_cookies import TwoFactorRequired, get_cookies
+from backend.mirea_api.get_cookies import EmailCodeRequired, TwoFactorRequired, get_cookies
 from backend.utils_helper import db
 
 from .schemas import (
@@ -424,6 +430,17 @@ async def get_mirea_token(
                 tg_user_id=tg_userid,
                 db=db,
             )
+
+            # Проверяем, не требуется ли ввод email кода
+            if isinstance(cookies_result, EmailCodeRequired):
+                await _handle_email_code_result(
+                    db, tg_userid, cookies_result, user_agent, source="external"
+                )
+                await send_email_code_notification(db, tg_userid, source="external")
+                raise HTTPException(
+                    status_code=403,
+                    detail="Email code required. User has been notified to enter email code in Mini App.",
+                )
 
             # Проверяем, не требуется ли 2FA
             if isinstance(cookies_result, TwoFactorRequired):

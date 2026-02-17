@@ -36,9 +36,16 @@ class CheckUserNeeds2FA:
     message: str = "Требуется ввод кода 2FA"
 
 
+@dataclass
+class CheckUserNeedsEmailCode:
+    """Пользователю нужно ввести код из email."""
+
+    message: str = "Требуется ввод кода из email"
+
+
 # Type alias для результата _check_user
 CheckUserResult = (
-    CheckUserSuccess | CheckUserError | CheckUserNeedsLogin | CheckUserNeeds2FA
+    CheckUserSuccess | CheckUserError | CheckUserNeedsLogin | CheckUserNeeds2FA | CheckUserNeedsEmailCode
 )
 
 

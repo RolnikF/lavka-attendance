@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { getModifiedUserAgent } from '../utils/telegramUtils';
 import UserAgentConstructor from './UserAgentConstructor';
 import OtpForm from './OtpForm';
+import EmailCodeForm from './EmailCodeForm';
 import { Smartphone, Settings, AlertTriangle, HelpCircle, LogIn, User, Lock } from 'lucide-react';
 
 // Функция безопасной отправки данных авторизации
@@ -33,6 +34,11 @@ const safeUpdateUser = async (initData, login, password, customUserAgent = null)
     } catch (e) {
       // Если не JSON, используем текст как есть
       return { success: response.ok, error: response.ok ? null : responseText };
+    }
+
+    // Проверяем на требование email кода (info.requires_email_code)
+    if (data && data.info && data.info.requires_email_code) {
+      return { success: false, data: { requires_email_code: true, message: data.info.message } };
     }
 
     // Проверяем на требование 2FA (info.requires_2fa)
@@ -96,6 +102,7 @@ const LoginForm = ({ initData, onLoginSuccess }) => {
   const [customUserAgent, setCustomUserAgent] = useState('');
   const [deviceInfo, setDeviceInfo] = useState('Выберите устройство');
   const [showOtpForm, setShowOtpForm] = useState(false);
+  const [showEmailCodeForm, setShowEmailCodeForm] = useState(false);
 
   // Определяем читаемое устройство из User-Agent
   const formatUserAgentForDisplay = (ua) => {
@@ -167,6 +174,13 @@ const LoginForm = ({ initData, onLoginSuccess }) => {
       );
 
       if (!updateResult.success) {
+        // Проверяем, нужен ли email код
+        if (updateResult.data && updateResult.data.requires_email_code) {
+          setShowEmailCodeForm(true);
+          setLoading(false);
+          return;
+        }
+
         // Проверяем, нужна ли 2FA
         if (updateResult.data && updateResult.data.requires_2fa) {
           setShowOtpForm(true);
@@ -220,6 +234,37 @@ const LoginForm = ({ initData, onLoginSuccess }) => {
     }
   };
 
+  // Обработчик успешной проверки email кода
+  const handleEmailCodeSuccess = async () => {
+    setShowEmailCodeForm(false);
+    setLoading(true);
+
+    try {
+      const userDataResult = await safeGetUserData(initData);
+
+      if (userDataResult.success && userDataResult.data) {
+        onLoginSuccess(userDataResult.data);
+      } else {
+        setError(userDataResult.error || 'Не удалось получить данные пользователя');
+      }
+    } catch (err) {
+      setError(err.message || 'Произошла ошибка при получении данных');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Обработчик перехода из email кода в OTP форму
+  const handleEmailCodeRequires2fa = () => {
+    setShowEmailCodeForm(false);
+    setShowOtpForm(true);
+  };
+
+  // Обработчик возврата из email code формы
+  const handleEmailCodeBack = () => {
+    setShowEmailCodeForm(false);
+  };
+
   // Обработчик возврата из OTP формы
   const handleOtpBack = () => {
     setShowOtpForm(false);
@@ -235,6 +280,18 @@ const LoginForm = ({ initData, onLoginSuccess }) => {
     setCustomUserAgent(userAgent);
     setShowUserAgentModal(false);
   };
+
+  // Показываем email code форму если требуется подтверждение по email
+  if (showEmailCodeForm) {
+    return (
+      <EmailCodeForm
+        initData={initData}
+        onSuccess={handleEmailCodeSuccess}
+        onRequires2fa={handleEmailCodeRequires2fa}
+        onBack={handleEmailCodeBack}
+      />
+    );
+  }
 
   // Показываем OTP форму если требуется 2FA
   if (showOtpForm) {

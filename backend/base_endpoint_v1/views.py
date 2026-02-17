@@ -20,6 +20,7 @@ from .crud import (
 from .schemas import (
     CheckUserError,
     CheckUserNeeds2FA,
+    CheckUserNeedsEmailCode,
     CheckUserNeedsLogin,
     DeleteUser,
     EditAllowConfirm,
@@ -116,6 +117,8 @@ async def check_user(
             return {"ok": False, "data": {}, "msg": result.message}
         if isinstance(result, CheckUserNeedsLogin):
             return {"ok": False, "needs_login": True, "msg": result.message}
+        if isinstance(result, CheckUserNeedsEmailCode):
+            return {"ok": False, "needs_email_code": True, "msg": result.message}
         if isinstance(result, CheckUserNeeds2FA):
             return {"ok": False, "needs_2fa": True, "msg": result.message}
 

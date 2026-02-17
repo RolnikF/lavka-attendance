@@ -14,11 +14,13 @@ from backend.dependencies import init_data
 from backend.utils_helper import db
 
 from .crud import (
+    _check_email_code_session,
     _check_totp_session,
     _create_user_part_1_new,
     _get_all,
     _get_all_admin,
     _get_count,
+    _submit_email_code,
     _submit_otp_code,
     _update_user,
 )
@@ -26,10 +28,12 @@ from .schemas import (
     BulkDeleteRequest,
     BulkEditRequest,
     BulkImportRequest,
+    CheckEmailCodeSession,
     CreateUserNew,
     DeleteUserByAdmin,
     SelectOtpCredential,
     SetAdminLevel,
+    SubmitEmailCode,
     SubmitOtpCode,
     UpdateUser,
 )
@@ -398,6 +402,71 @@ async def select_otp_credential(data: SelectOtpCredential) -> Dict[str, Any]:
     except Exception as e:
         logger.error(
             f"Error in select_otp_credential for {tg_user_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
+        )
+    finally:
+        await db.disconnect()
+
+
+@router.post("/submit_email_code")
+async def submit_email_code(data: SubmitEmailCode) -> Dict[str, Any]:
+    """
+    Отправляет код из email для завершения проверки.
+
+    Args:
+        data: Данные с initData и email кодом
+
+    Returns:
+        Словарь с результатом:
+        - success=True и groups при успехе
+        - requires_email_code=True если код неверный
+        - requires_2fa=True если после email кода нужен OTP
+    """
+    try:
+        tg_user_id = verify_init_data(data.initData, BOT_TOKEN)
+    except ValueError as err:
+        logger.error(f"Auth error in submit_email_code: {err}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err))
+
+    try:
+        await db.connect()
+        result = await _submit_email_code(db, tg_user_id, data.email_code)
+        return result
+    except Exception as e:
+        logger.error(f"Error in submit_email_code for {tg_user_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
+        )
+    finally:
+        await db.disconnect()
+
+
+@router.get("/check_email_code_session")
+async def check_email_code_session(initData: str) -> Dict[str, Any]:
+    """
+    Проверяет наличие активной email code сессии для пользователя.
+
+    Args:
+        initData: Telegram Mini App initData
+
+    Returns:
+        Словарь с has_session=True если есть активная сессия
+    """
+    try:
+        tg_user_id = verify_init_data(initData, BOT_TOKEN)
+    except ValueError as err:
+        logger.error(f"Auth error in check_email_code_session: {err}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err))
+
+    try:
+        await db.connect()
+        result = await _check_email_code_session(db, tg_user_id)
+        return result
+    except Exception as e:
+        logger.error(
+            f"Error in check_email_code_session for {tg_user_id}: {e}", exc_info=True
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"

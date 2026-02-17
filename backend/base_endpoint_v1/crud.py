@@ -3,7 +3,7 @@ import logging
 
 from starlette import status
 
-from backend.attendance import TwoFactorRequiredError, get_us_info
+from backend.attendance import EmailCodeRequiredError, TwoFactorRequiredError, get_us_info
 from backend.database import DBModel
 from backend.mirea_api.get_acs_events import (
     determine_university_status,
@@ -13,6 +13,7 @@ from backend.mirea_api.get_acs_events import (
 from .schemas import (
     CheckUserError,
     CheckUserNeeds2FA,
+    CheckUserNeedsEmailCode,
     CheckUserNeedsLogin,
     CheckUserResult,
     CheckUserSuccess,
@@ -52,6 +53,10 @@ async def _check_user(db: DBModel, tg_user_id: int) -> CheckUserResult:
         user_info: str = await get_us_info(db, tg_user_id, user_agent)
 
         return CheckUserSuccess(user_info=info_from_db, fio=user_info, is_valid=True)
+
+    except EmailCodeRequiredError:
+        logger.info(f"Email code required for user {tg_user_id}")
+        return CheckUserNeedsEmailCode()
 
     except TwoFactorRequiredError:
         logger.info(f"2FA required for user {tg_user_id}")
@@ -212,8 +217,8 @@ async def _get_group_university_status(db: DBModel, tg_user_id: int) -> dict:
                 # Получаем user_agent и FIO через get_us_info
                 user_agent_for_fio = await db.get_user_agent(user_tg_id)
                 fio = await get_us_info(db, user_tg_id, user_agent_for_fio)
-            except TwoFactorRequiredError:
-                # Требуется 2FA - проверим позже
+            except (TwoFactorRequiredError, EmailCodeRequiredError):
+                # Требуется 2FA или email код - проверим позже
                 needs_2fa = True
                 # Пробуем получить FIO из БД
                 saved_fio = await db.get_fio(user_tg_id)
@@ -234,9 +239,10 @@ async def _get_group_university_status(db: DBModel, tg_user_id: int) -> dict:
 
             # Если нет кук, проверяем есть ли pending 2FA сессия или требуется 2FA
             if not cookies:
-                # Проверяем есть ли активная 2FA сессия
+                # Проверяем есть ли активная 2FA или email code сессия
                 totp_session = await db.get_totp_session(user_tg_id)
-                if needs_2fa or totp_session:
+                email_code_session = await db.get_email_code_session(user_tg_id)
+                if needs_2fa or totp_session or email_code_session:
                     result.append(
                         {
                             "fio": fio,

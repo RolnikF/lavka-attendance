@@ -27,6 +27,15 @@ class TwoFactorRequired:
 
 
 @dataclass
+class EmailCodeRequired:
+    """Результат, когда требуется ввод кода из email."""
+
+    session_cookies: dict
+    email_code_action_url: str
+    message: str = "Код подтверждения отправлен на вашу почту"
+
+
+@dataclass
 class CookiesResult:
     """Успешный результат получения cookies."""
 
@@ -153,6 +162,42 @@ def _extract_cookies_list(session) -> list:
                 cookie["expiry"] = morsel.get("expires")
             cookies.append(cookie)
     return cookies
+
+
+def _is_email_code_page(page_text: str) -> bool:
+    """Проверяет, является ли страница формой ввода email кода."""
+    return (
+        '"email-code-form"' in page_text
+        or '"emailCode"' in page_text
+        or 'name="emailCode"' in page_text
+        or "email-authenticator" in page_text
+    )
+
+
+def _extract_email_code_form_url(page_text: str, current_url: str) -> Optional[str]:
+    """Извлекает URL для отправки email кода из страницы Keycloak."""
+    logger.info(f"Extracting email code form URL, page length: {len(page_text)}")
+
+    # Способ 1: loginAction в kcContext
+    login_action_match = re.search(r'"loginAction":\s*"([^"]*)"', page_text)
+    if login_action_match:
+        url = login_action_match.group(1).encode().decode("unicode-escape")
+        logger.info(f"Found email code loginAction URL: {url}")
+        return url
+
+    # Способ 2: форма в HTML
+    soup = BeautifulSoup(page_text, "html.parser")
+    form = soup.find("form")
+    if form and form.get("action"):
+        action = form["action"].replace("&amp;", "&")
+        if not action.startswith("http"):
+            parsed = urlparse(current_url)
+            action = f"{parsed.scheme}://{parsed.netloc}{action}"
+        logger.info(f"Found email code form action: {action}")
+        return action
+
+    logger.error(f"No email code action URL found. Page preview: {page_text[:3000]}")
+    return None
 
 
 def _is_otp_page(page_text: str) -> bool:
@@ -337,6 +382,7 @@ async def get_cookies(
             login_data = {
                 "username": user_login,
                 "password": password,
+                "credentialId": "",
             }
 
             headers = {
@@ -361,6 +407,25 @@ async def get_cookies(
                 logger.info(
                     f"Статус: {post_response.status}, Конечный URL: {final_redirect_url}"
                 )
+
+                # Проверяем, не требуется ли ввод email кода
+                if post_response.status == 200 and _is_email_code_page(response_text):
+                    logger.info(
+                        f"Обнаружена страница email кода для пользователя {tg_user_id}"
+                    )
+                    email_action_url = _extract_email_code_form_url(
+                        response_text, final_redirect_url
+                    )
+                    if email_action_url:
+                        session_cookies = _extract_session_cookies(session)
+                        return EmailCodeRequired(
+                            session_cookies=session_cookies,
+                            email_code_action_url=email_action_url,
+                        )
+                    else:
+                        raise Exception(
+                            "Обнаружена страница email кода, но не удалось извлечь URL формы"
+                        )
 
                 # Проверяем, не требуется ли OTP
                 if post_response.status == 200 and _is_otp_page(response_text):
@@ -423,6 +488,147 @@ async def get_cookies(
         ):
             raise
         raise Exception(f"Ошибка при получении cookies: {str(e)}")
+
+
+async def submit_email_code(
+    email_code: str,
+    email_code_action_url: str,
+    session_cookies: dict,
+    user_agent: str = None,
+    tg_user_id: int = None,
+) -> Union[list, TwoFactorRequired, EmailCodeRequired]:
+    """
+    Отправляет email код для прохождения проверки по почте.
+
+    Аргументы:
+    email_code (str): Код из email.
+    email_code_action_url (str): URL для отправки кода.
+    session_cookies (dict): Cookies сессии Keycloak.
+    user_agent (str): User-Agent для запросов.
+    tg_user_id (int): Telegram ID пользователя для логирования.
+
+    Возвращает:
+    list: [cookies] при успешной авторизации
+    TwoFactorRequired: если после email кода требуется OTP
+    EmailCodeRequired: если код неверный и нужно повторить ввод
+    """
+    logger.info(f"Отправка email кода для пользователя {tg_user_id}")
+
+    try:
+        jar = aiohttp.CookieJar()
+
+        async with aiohttp.ClientSession(cookie_jar=jar) as session:
+            # Восстанавливаем cookies в сессию
+            for name, cookie_data in session_cookies.items():
+                domain = cookie_data.get("domain", "sso.mirea.ru")
+                if isinstance(domain, (list, tuple)):
+                    domain = domain[0] if domain and domain[0] else "sso.mirea.ru"
+                if domain.startswith("."):
+                    domain = domain[1:]
+
+                jar.update_cookies(
+                    {name: cookie_data["value"]},
+                    response_url=aiohttp.client.URL(f"https://{domain}"),
+                )
+
+            random_mobile_ua = (
+                user_agent
+                if user_agent is not None
+                else generate_random_mobile_user_agent()
+            )
+
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": random_mobile_ua,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
+            }
+
+            email_data = {
+                "emailCode": email_code,
+                "login": "true",
+            }
+
+            logger.info(f"Отправка email кода на URL: {email_code_action_url}")
+
+            async with session.post(
+                email_code_action_url,
+                data=email_data,
+                headers=headers,
+                allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as response:
+                final_url = str(response.url)
+                response_text = await response.text()
+                logger.info(
+                    f"Email код ответ: статус={response.status}, URL={final_url}"
+                )
+
+                # Если снова страница email кода — неверный код
+                if response.status == 200 and _is_email_code_page(response_text):
+                    logger.warning(
+                        f"Неверный email код для пользователя {tg_user_id}"
+                    )
+                    new_action_url = _extract_email_code_form_url(
+                        response_text, final_url
+                    )
+                    if new_action_url:
+                        new_session_cookies = _extract_session_cookies(session)
+                        return EmailCodeRequired(
+                            session_cookies=new_session_cookies,
+                            email_code_action_url=new_action_url,
+                            message="Неверный код. Попробуйте снова.",
+                        )
+                    else:
+                        raise Exception("Неверный email код")
+
+                # Проверяем, не требуется ли теперь OTP (2FA)
+                if response.status == 200 and _is_otp_page(response_text):
+                    logger.info(
+                        f"После email кода требуется OTP для пользователя {tg_user_id}"
+                    )
+                    otp_data = _extract_otp_form_data(response_text, final_url)
+                    if otp_data:
+                        otp_session_cookies = _extract_session_cookies(session)
+                        return TwoFactorRequired(
+                            session_cookies=otp_session_cookies,
+                            otp_action_url=otp_data["otp_action_url"],
+                            credential_id=otp_data["credential_id"],
+                            otp_credentials=otp_data.get("otp_credentials", []),
+                        )
+                    else:
+                        raise Exception(
+                            "После email кода обнаружена 2FA, но не удалось извлечь данные OTP"
+                        )
+
+                # Успешный редирект (302 → attendance-app)
+                if response.status == 200 or response.status == 302:
+                    if (
+                        "attendance-app.mirea.ru" in final_url
+                        or response.status == 302
+                    ):
+                        cookies = _extract_cookies_list(session)
+                        logger.info(
+                            f"Email код принят для пользователя {tg_user_id}! "
+                            f"Получено {len(cookies)} cookies"
+                        )
+                        return [cookies]
+
+                raise Exception(
+                    f"Неожиданный ответ при проверке email кода: {response.status}"
+                )
+
+    except aiohttp.ClientError as e:
+        logger.error(
+            f"Ошибка сети при отправке email кода для {tg_user_id}: {str(e)}"
+        )
+        raise Exception(f"Ошибка подключения: {str(e)}")
+
+    except Exception as e:
+        logger.error(
+            f"Ошибка при отправке email кода для {tg_user_id}: {str(e)}"
+        )
+        raise
 
 
 async def submit_otp_code(

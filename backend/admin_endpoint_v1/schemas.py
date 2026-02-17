@@ -74,6 +74,19 @@ class SelectOtpCredential(BaseModel):
     credential_id: str
 
 
+class SubmitEmailCode(BaseModel):
+    """Схема для отправки кода из email."""
+
+    initData: str
+    email_code: str
+
+
+class CheckEmailCodeSession(BaseModel):
+    """Схема для проверки наличия email code сессии."""
+
+    initData: str
+
+
 # Bulk operations schemas
 
 

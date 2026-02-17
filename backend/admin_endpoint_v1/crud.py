@@ -2,13 +2,15 @@ import logging
 from typing import Any, Dict, List, Optional, Union
 
 from backend.attendance import (
+    EmailCodeRequiredError,
     TwoFactorRequiredError,
     add_data_for_login,
     check_login_and_pass,
     complete_2fa_login,
+    complete_email_code_login,
 )
 from backend.database import DBModel
-from backend.mirea_api.get_cookies import TwoFactorRequired
+from backend.mirea_api.get_cookies import EmailCodeRequired, TwoFactorRequired
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,23 @@ async def _update_user(
         elif "login" in dict_for_update or "password" in dict_for_update:
             return "Логин без пароля не живет и на оборот"
         return await db.update_user(tg_user_id, **dict_for_update)
+    except EmailCodeRequiredError:
+        logger.info(f"Email code required for user {tg_user_id} during update")
+        # Сохраняем логин и пароль в БД до возврата email code
+        save_fields = {}
+        if "login" in dict_for_update:
+            save_fields["login"] = dict_for_update["login"]
+        if "password" in dict_for_update:
+            save_fields["password"] = dict_for_update["password"]
+        if "user_agent" in dict_for_update:
+            save_fields["user_agent"] = dict_for_update["user_agent"]
+        if save_fields:
+            try:
+                await db.update_user(tg_user_id, **save_fields)
+                logger.info(f"Saved credentials for user {tg_user_id} before email code")
+            except Exception as save_err:
+                logger.error(f"Failed to save credentials for {tg_user_id}: {save_err}")
+        return {"requires_email_code": True, "message": "Код подтверждения отправлен на вашу почту"}
     except TwoFactorRequiredError:
         logger.info(f"2FA required for user {tg_user_id} during update")
         # Сохраняем логин и пароль в БД до возврата 2FA
@@ -115,6 +134,9 @@ async def _create_user_part_1_new(
             )
         return res
 
+    except EmailCodeRequiredError:
+        logger.info(f"Email code required for new user {tg_user_id}")
+        return {"requires_email_code": True, "message": "Код подтверждения отправлен на вашу почту"}
     except TwoFactorRequiredError:
         logger.info(f"2FA required for new user {tg_user_id}")
         return {"requires_2fa": True, "message": "Требуется ввод TOTP кода"}
@@ -189,6 +211,74 @@ async def _check_totp_session(db: DBModel, tg_user_id: int) -> Dict[str, Any]:
         "has_session": False,
         "source": None,
         "otp_credentials": [],
+    }
+
+
+async def _submit_email_code(
+    db: DBModel, tg_user_id: int, email_code: str
+) -> Dict[str, Any]:
+    """
+    Отправляет email код для завершения проверки.
+
+    Args:
+        db: Экземпляр модели базы данных
+        tg_user_id: ID пользователя в Telegram
+        email_code: Код из email
+
+    Returns:
+        Словарь с результатом: success=True и groups при успехе,
+        requires_email_code=True если код неверный,
+        requires_2fa=True если после email кода нужен OTP
+    """
+    try:
+        result = await complete_email_code_login(db, tg_user_id, email_code)
+
+        if isinstance(result, EmailCodeRequired):
+            return {
+                "success": False,
+                "requires_email_code": True,
+                "message": result.message or "Неверный код. Попробуйте снова.",
+            }
+
+        if isinstance(result, TwoFactorRequired):
+            return {
+                "success": False,
+                "requires_2fa": True,
+                "message": "Требуется ввод TOTP кода",
+                "otp_credentials": result.otp_credentials or [],
+            }
+
+        # Успешная авторизация - обновляем группу в БД
+        if result and len(result) > 0:
+            await db.update_user(tg_user_id, group_name=result[-1])
+
+        return {"success": True, "groups": result}
+
+    except Exception as e:
+        logger.error(f"Error submitting email code for user {tg_user_id}: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def _check_email_code_session(db: DBModel, tg_user_id: int) -> Dict[str, Any]:
+    """
+    Проверяет наличие активной email code сессии для пользователя.
+
+    Args:
+        db: Экземпляр модели базы данных
+        tg_user_id: ID пользователя в Telegram
+
+    Returns:
+        Словарь с has_session=True если есть активная сессия
+    """
+    session = await db.get_email_code_session(tg_user_id)
+    if session:
+        return {
+            "has_session": True,
+            "source": session.get("source"),
+        }
+    return {
+        "has_session": False,
+        "source": None,
     }
 
 

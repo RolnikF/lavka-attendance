@@ -18,7 +18,12 @@ from backend.mirea_api import get_user_points as get_points
 from backend.mirea_api import (
     self_approve_attendance,
 )
-from backend.mirea_api.get_cookies import TwoFactorRequired, submit_otp_code
+from backend.mirea_api.get_cookies import (
+    EmailCodeRequired,
+    TwoFactorRequired,
+    submit_email_code,
+    submit_otp_code,
+)
 from backend.tg_endpoint_v1.crud import send_telegram_message
 
 logger = logging.getLogger(__name__)
@@ -144,6 +149,15 @@ class TwoFactorRequiredError(Exception):
     message: str = "Требуется ввод TOTP кода"
 
 
+@dataclass
+class EmailCodeRequiredError(Exception):
+    """Исключение, когда требуется ввод кода из email."""
+
+    tg_user_id: int
+    source: str = "login"
+    message: str = "Код подтверждения отправлен на вашу почту"
+
+
 async def _handle_2fa_result(
     db: DBModel,
     tg_user_id: int,
@@ -170,6 +184,165 @@ async def _handle_2fa_result(
         source=source,
         otp_credentials=json.dumps(result.otp_credentials) if result.otp_credentials else None,
     )
+
+
+async def _handle_email_code_result(
+    db: DBModel,
+    tg_user_id: int,
+    result: EmailCodeRequired,
+    user_agent: str,
+    source: str = "login",
+) -> None:
+    """
+    Сохраняет данные email code сессии в БД.
+
+    Args:
+        db: Экземпляр базы данных
+        tg_user_id: Telegram ID пользователя
+        result: Результат EmailCodeRequired
+        user_agent: User agent для запросов
+        source: Источник запроса ('login' или 'refresh')
+    """
+    await db.create_email_code_session(
+        tg_userid=tg_user_id,
+        session_cookies=json.dumps(result.session_cookies),
+        email_code_action_url=result.email_code_action_url,
+        user_agent=user_agent,
+        source=source,
+    )
+
+
+async def send_email_code_notification(
+    db: DBModel, tg_user_id: int, source: str = "login"
+) -> bool:
+    """
+    Отправляет уведомление в Telegram о необходимости ввода email кода.
+    Уведомление отправляется максимум 1 раз в 24 часа.
+
+    Args:
+        db: Экземпляр базы данных
+        tg_user_id: Telegram ID пользователя
+        source: Источник запроса
+
+    Returns:
+        True если уведомление было отправлено
+    """
+    try:
+        can_send = await db.can_send_email_code_notification(tg_user_id)
+        if not can_send:
+            logger.info(
+                f"Skipping email code notification for user {tg_user_id} - "
+                "already sent within 24 hours"
+            )
+            return False
+
+        message = (
+            "📧 <b>Требуется подтверждение по email</b>\n\n"
+            "На вашу почту МИРЭА отправлен код подтверждения. "
+            "Проверьте почту и введите код в Mini App.\n\n"
+            "📱 Откройте Mini App и введите код из письма.\n\n"
+            "⚠️ Без ввода кода автоматическая отметка посещаемости не будет работать."
+        )
+
+        await send_telegram_message(tg_user_id, message)
+        await db.mark_email_code_notification_sent(tg_user_id)
+
+        logger.info(f"Sent email code notification to user {tg_user_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send email code notification to {tg_user_id}: {e}")
+        return False
+
+
+async def complete_email_code_login(
+    db: DBModel,
+    tg_user_id: int,
+    email_code: str,
+) -> Union[List[str], EmailCodeRequired, TwoFactorRequired]:
+    """
+    Завершает проверку email кода.
+
+    Args:
+        db: Экземпляр базы данных
+        tg_user_id: Telegram ID пользователя
+        email_code: Код из email
+
+    Returns:
+        Список групп пользователя при полном успехе
+        TwoFactorRequired если после email кода нужен OTP
+        EmailCodeRequired если код неверный
+
+    Raises:
+        Exception: Если сессия email кода не найдена или истекла
+    """
+    email_session = await db.get_email_code_session(tg_user_id)
+    if not email_session:
+        raise Exception(
+            "Сессия email кода не найдена или истекла. Начните авторизацию заново."
+        )
+
+    session_cookies = json.loads(email_session["session_cookies"])
+    user_agent = email_session.get("user_agent")
+    source = email_session.get("source", "login")
+
+    result = await submit_email_code(
+        email_code=email_code,
+        email_code_action_url=email_session["email_code_action_url"],
+        session_cookies=session_cookies,
+        user_agent=user_agent,
+        tg_user_id=tg_user_id,
+    )
+
+    # Если снова требуется email код (неверный код)
+    if isinstance(result, EmailCodeRequired):
+        await db.update_email_code_session(
+            tg_userid=tg_user_id,
+            session_cookies=json.dumps(result.session_cookies),
+            email_code_action_url=result.email_code_action_url,
+        )
+        return result
+
+    # Удаляем email code сессию - она больше не нужна
+    await db.delete_email_code_session(tg_user_id)
+
+    # Если после email кода требуется OTP
+    if isinstance(result, TwoFactorRequired):
+        logger.info(f"Email code accepted, OTP required for user {tg_user_id}")
+        # Пробуем автоматическую 2FA
+        auto_result = await try_auto_2fa(db, tg_user_id, result, user_agent)
+        if auto_result:
+            cookies = auto_result["cookies"]
+            await db.create_cookie(tg_user_id, json.dumps(cookies))
+            if source == "login":
+                try:
+                    groups = await get_groups.get_group(
+                        cookies, tg_user_id, db, user_agent=user_agent
+                    )
+                    return groups[0]
+                except Exception as e:
+                    logger.error(f"Error getting groups after auto-2FA for {tg_user_id}: {e}")
+                    return []
+            return []
+
+        # Автоматическая 2FA не удалась — сохраняем OTP сессию
+        await _handle_2fa_result(db, tg_user_id, result, user_agent, source=source)
+        return result
+
+    # Успех — cookies получены
+    cookies = result[0]
+    await db.create_cookie(tg_user_id, json.dumps(cookies))
+
+    if source == "login":
+        try:
+            groups = await get_groups.get_group(
+                cookies, tg_user_id, db, user_agent=user_agent
+            )
+            return groups[0]
+        except Exception as e:
+            logger.error(f"Error getting groups after email code for {tg_user_id}: {e}")
+            return []
+
+    return []
 
 
 async def complete_2fa_login(
@@ -307,6 +480,16 @@ async def get_us_info(db, tgID, user_agent=None, notify_on_2fa=False):
                 db,
             )
 
+            # Проверяем, не требуется ли ввод email кода
+            if isinstance(cookies_result, EmailCodeRequired):
+                logger.info(f"Email code required for user {tgID} during get_us_info")
+                await _handle_email_code_result(
+                    db, tgID, cookies_result, user_agent, source="refresh"
+                )
+                if notify_on_2fa:
+                    await send_email_code_notification(db, tgID, source="refresh")
+                raise EmailCodeRequiredError(tg_user_id=tgID, source="refresh")
+
             # Проверяем, не требуется ли 2FA
             if isinstance(cookies_result, TwoFactorRequired):
                 logger.info(f"2FA required for user {tgID} during get_us_info")
@@ -340,12 +523,12 @@ async def get_us_info(db, tgID, user_agent=None, notify_on_2fa=False):
                 return info[0]
             else:
                 raise Exception("Неправильный логин или пароль")
-        except TwoFactorRequiredError:
+        except (TwoFactorRequiredError, EmailCodeRequiredError):
             raise
         except Exception as e:
             raise Exception(f"Ошибка обновления cookies: {str(e)}")
 
-    except TwoFactorRequiredError:
+    except (TwoFactorRequiredError, EmailCodeRequiredError):
         raise
     except Exception as e:
         raise Exception(f"Ошибка в get_us_info: {str(e)}")
@@ -391,6 +574,15 @@ async def self_approve(db, tgID, token, user_agent=None):
             db,
         )
 
+        # Проверяем, не требуется ли ввод email кода
+        if isinstance(cookies_result, EmailCodeRequired):
+            logger.info(f"Email code required for user {tgID} during self_approve")
+            await _handle_email_code_result(
+                db, tgID, cookies_result, user_agent, source="refresh"
+            )
+            await send_email_code_notification(db, tgID, source="refresh")
+            raise EmailCodeRequiredError(tg_user_id=tgID, source="refresh")
+
         # Проверяем, не требуется ли 2FA
         if isinstance(cookies_result, TwoFactorRequired):
             logger.info(f"2FA required for user {tgID} during self_approve")
@@ -425,7 +617,7 @@ async def self_approve(db, tgID, token, user_agent=None):
         )
         return result[0]
 
-    except TwoFactorRequiredError:
+    except (TwoFactorRequiredError, EmailCodeRequiredError):
         raise
     except Exception as e:
         raise Exception(f"Неправильный логин или пароль: {str(e)}")
@@ -455,6 +647,19 @@ async def add_data_for_login(
     try:
         # Пробуем получить куки по введённым данным
         result = await get_cookies.get_cookies(login, password, user_agent, tgID, db)
+
+        # Проверяем, не требуется ли ввод email кода
+        if isinstance(result, EmailCodeRequired):
+            logger.info(f"Email code required for user {tgID} during login")
+            # Сохраняем данные пользователя и email code сессию
+            await db.create_user_simple(
+                tg_userid=tgID,
+                login=login,
+                password=password,
+                user_agent=user_agent,
+            )
+            await _handle_email_code_result(db, tgID, result, user_agent, source="login")
+            raise EmailCodeRequiredError(tg_user_id=tgID, source="login")
 
         # Проверяем, не требуется ли 2FA
         if isinstance(result, TwoFactorRequired):
@@ -502,7 +707,7 @@ async def add_data_for_login(
         await db.create_cookie(tgID, json.dumps(cookies[0]))
 
         return groups[0]
-    except TwoFactorRequiredError:
+    except (TwoFactorRequiredError, EmailCodeRequiredError):
         raise
     except Exception as e:
         raise Exception(f"Ошибка в add_data_for_login: {str(e)}")
@@ -532,6 +737,16 @@ async def check_login_and_pass(db, tg_userid, login, password, user_agent=None):
             login, password, user_agent, tg_userid, db
         )
 
+        # Проверяем, не требуется ли ввод email кода
+        if isinstance(result, EmailCodeRequired):
+            logger.info(
+                f"Email code required for user {tg_userid} during check_login_and_pass"
+            )
+            await _handle_email_code_result(
+                db, tg_userid, result, user_agent, source="login"
+            )
+            raise EmailCodeRequiredError(tg_user_id=tg_userid, source="login")
+
         # Проверяем, не требуется ли 2FA
         if isinstance(result, TwoFactorRequired):
             logger.info(
@@ -559,7 +774,7 @@ async def check_login_and_pass(db, tg_userid, login, password, user_agent=None):
             cookies[0], tg_userid, db, user_agent=user_agent
         )
         return groups[0]
-    except TwoFactorRequiredError:
+    except (TwoFactorRequiredError, EmailCodeRequiredError):
         raise
     except Exception as e:
         raise Exception(f"Ошибка в check_login_and_pass: {str(e)}")
@@ -607,6 +822,14 @@ async def get_user_points(db, tgID, user_agent=None):
             db,
         )
 
+        # Проверяем, не требуется ли ввод email кода
+        if isinstance(cookies_result, EmailCodeRequired):
+            logger.info(f"Email code required for user {tgID} during get_user_points")
+            await _handle_email_code_result(
+                db, tgID, cookies_result, user_agent, source="refresh"
+            )
+            raise EmailCodeRequiredError(tg_user_id=tgID, source="refresh")
+
         # Проверяем, не требуется ли 2FA
         if isinstance(cookies_result, TwoFactorRequired):
             logger.info(f"2FA required for user {tgID} during get_user_points")
@@ -638,7 +861,7 @@ async def get_user_points(db, tgID, user_agent=None):
         )
         return res_from_att[0]
 
-    except TwoFactorRequiredError:
+    except (TwoFactorRequiredError, EmailCodeRequiredError):
         raise
     except Exception as e:
         raise Exception(f"Что то пошло не так ;( Ошибка - {str(e)}")
@@ -706,6 +929,14 @@ async def _get_user_schedule(
             db,
         )
 
+        # Проверяем, не требуется ли ввод email кода
+        if isinstance(cookies_result, EmailCodeRequired):
+            logger.info(f"Email code required for user {user_id} during _get_user_schedule")
+            await _handle_email_code_result(
+                db, user_id, cookies_result, user_agent, source="refresh"
+            )
+            raise EmailCodeRequiredError(tg_user_id=user_id, source="refresh")
+
         # Проверяем, не требуется ли 2FA
         if isinstance(cookies_result, TwoFactorRequired):
             logger.info(f"2FA required for user {user_id} during _get_user_schedule")
@@ -739,7 +970,7 @@ async def _get_user_schedule(
         )
         return res_from_att[0]
 
-    except TwoFactorRequiredError:
+    except (TwoFactorRequiredError, EmailCodeRequiredError):
         raise
     except HTTPException:
         raise
@@ -810,6 +1041,16 @@ async def get_lesson_attendance_info(
             db,
         )
 
+        # Проверяем, не требуется ли ввод email кода
+        if isinstance(cookies_result, EmailCodeRequired):
+            logger.info(
+                f"Email code required for user {user_id} during get_lesson_attendance_info"
+            )
+            await _handle_email_code_result(
+                db, user_id, cookies_result, user_agent, source="refresh"
+            )
+            raise EmailCodeRequiredError(tg_user_id=user_id, source="refresh")
+
         # Проверяем, не требуется ли 2FA
         if isinstance(cookies_result, TwoFactorRequired):
             logger.info(
@@ -853,7 +1094,7 @@ async def get_lesson_attendance_info(
         )
         return res_from_att[0]
 
-    except TwoFactorRequiredError:
+    except (TwoFactorRequiredError, EmailCodeRequiredError):
         raise
     except HTTPException:
         raise

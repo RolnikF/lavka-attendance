@@ -204,6 +204,30 @@ class DBModel:
             """
             )
 
+            # Таблица для хранения email code сессий
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS email_code_sessions (
+                    id SERIAL PRIMARY KEY,
+                    tg_userid BIGINT NOT NULL,
+                    session_cookies TEXT NOT NULL,
+                    email_code_action_url TEXT NOT NULL,
+                    user_agent TEXT,
+                    source TEXT DEFAULT 'login',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    last_notification_sent TIMESTAMP WITH TIME ZONE
+                );
+            """
+            )
+
+            # Удаляем истекшие email code сессии
+            await conn.execute(
+                """
+                DELETE FROM email_code_sessions WHERE expires_at < NOW();
+            """
+            )
+
             # Таблица для аудит-логов админских действий
             await conn.execute(
                 """
@@ -1560,6 +1584,175 @@ class DBModel:
             await conn.execute(
                 """
                 UPDATE totp_sessions
+                SET last_notification_sent = NOW()
+                WHERE tg_userid = $1 AND expires_at > NOW()
+            """,
+                tg_userid,
+            )
+
+    # Методы для таблицы email_code_sessions
+
+    async def create_email_code_session(
+        self,
+        tg_userid: int,
+        session_cookies: str,
+        email_code_action_url: str,
+        user_agent: str = None,
+        source: str = "login",
+        expires_minutes: int = 5,
+    ) -> int:
+        """
+        Создает новую сессию email кода.
+
+        Args:
+            tg_userid: Telegram ID пользователя
+            session_cookies: JSON строка с cookies сессии Keycloak
+            email_code_action_url: URL для отправки email кода
+            user_agent: User-Agent для запросов
+            source: Источник запроса ('login' или 'refresh')
+            expires_minutes: Время жизни сессии в минутах
+
+        Returns:
+            ID созданной сессии
+        """
+        async with self.pool.acquire() as conn:
+            old_notification = await conn.fetchval(
+                """
+                SELECT last_notification_sent
+                FROM email_code_sessions
+                WHERE tg_userid = $1 AND last_notification_sent IS NOT NULL
+                ORDER BY last_notification_sent DESC
+                LIMIT 1
+                """,
+                tg_userid,
+            )
+
+            await conn.execute(
+                """DELETE FROM email_code_sessions WHERE tg_userid = $1""",
+                tg_userid,
+            )
+
+            session_id = await conn.fetchval(
+                """
+                INSERT INTO email_code_sessions
+                    (tg_userid, session_cookies, email_code_action_url, user_agent, source, expires_at, last_notification_sent)
+                VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '1 minute' * $6, $7)
+                RETURNING id
+            """,
+                tg_userid,
+                session_cookies,
+                email_code_action_url,
+                user_agent,
+                source,
+                expires_minutes,
+                old_notification,
+            )
+            return session_id
+
+    async def get_email_code_session(self, tg_userid: int):
+        """
+        Возвращает активную email code сессию для пользователя.
+
+        Args:
+            tg_userid: Telegram ID пользователя
+
+        Returns:
+            dict с данными сессии или None если сессия не найдена/истекла
+        """
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, tg_userid, session_cookies, email_code_action_url,
+                       user_agent, source, created_at, expires_at
+                FROM email_code_sessions
+                WHERE tg_userid = $1 AND expires_at > NOW()
+                ORDER BY created_at DESC
+                LIMIT 1
+            """,
+                tg_userid,
+            )
+            return dict(row) if row else None
+
+    async def update_email_code_session(
+        self,
+        tg_userid: int,
+        session_cookies: str,
+        email_code_action_url: str,
+    ):
+        """
+        Обновляет данные email code сессии (после неверного кода).
+
+        Args:
+            tg_userid: Telegram ID пользователя
+            session_cookies: Новые cookies сессии
+            email_code_action_url: Новый URL для email кода
+        """
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE email_code_sessions
+                SET session_cookies = $2,
+                    email_code_action_url = $3
+                WHERE tg_userid = $1 AND expires_at > NOW()
+            """,
+                tg_userid,
+                session_cookies,
+                email_code_action_url,
+            )
+
+    async def delete_email_code_session(self, tg_userid: int):
+        """
+        Удаляет email code сессию пользователя.
+
+        Args:
+            tg_userid: Telegram ID пользователя
+        """
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """DELETE FROM email_code_sessions WHERE tg_userid = $1""",
+                tg_userid,
+            )
+
+    async def cleanup_expired_email_code_sessions(self):
+        """Удаляет все истекшие email code сессии."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """DELETE FROM email_code_sessions WHERE expires_at < NOW()"""
+            )
+
+    async def can_send_email_code_notification(self, tg_userid: int) -> bool:
+        """
+        Проверяет, можно ли отправить уведомление о email коде.
+        Возвращает True если уведомление не отправлялось в течение 24 часов.
+        """
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT last_notification_sent
+                FROM email_code_sessions
+                WHERE tg_userid = $1 AND expires_at > NOW()
+                ORDER BY created_at DESC
+                LIMIT 1
+            """,
+                tg_userid,
+            )
+
+            if not row or row["last_notification_sent"] is None:
+                return True
+
+            from datetime import datetime, timezone
+
+            last_sent = row["last_notification_sent"]
+            now = datetime.now(timezone.utc)
+            time_diff = now - last_sent
+            return time_diff.total_seconds() > 24 * 60 * 60
+
+    async def mark_email_code_notification_sent(self, tg_userid: int):
+        """Отмечает, что уведомление о email коде было отправлено."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE email_code_sessions
                 SET last_notification_sent = NOW()
                 WHERE tg_userid = $1 AND expires_at > NOW()
             """,
