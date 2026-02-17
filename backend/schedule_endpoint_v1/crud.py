@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from backend.attendance import _get_user_schedule
+from backend.attendance import EmailCodeRequiredError, _get_user_schedule
 from backend.database import DBModel
 from backend.mirea_api import get_cookies
 from backend.mirea_api.get_lesson_attendance import get_disciplines, get_visiting_logs
@@ -119,6 +119,8 @@ async def get_schedules(
 
         return ScheduleResponse(lessons=lesson_responses)
 
+    except EmailCodeRequiredError:
+        raise HTTPException(status_code=401, detail="Email code required")
     except HTTPException:
         raise
     except Exception as e:

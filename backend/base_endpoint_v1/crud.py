@@ -61,25 +61,9 @@ async def _check_user(db: DBModel, tg_user_id: int) -> CheckUserResult:
         return CheckUserSuccess(user_info=info_from_db, fio=user_info, is_valid=True)
 
     except EmailCodeRequiredError:
-        # Если у пользователя уже есть куки (например, только что прошёл email верификацию),
-        # но get_me_info вернул неожиданный формат → не зацикливаем на повторный email код.
-        # Используем данные из БД как fallback.
-        try:
-            cookie_record = await db.get_cookie(tg_user_id)
-            if cookie_record and cookie_record.get("cookies"):
-                # asyncpg Record → dict для мутабельности
-                info_dict = dict(info_from_db) if info_from_db else {}
-                fio = (info_dict.get("fio") or info_dict.get("login") or "")
-                if not info_dict.get("group_name"):
-                    info_dict["group_name"] = "Не определена"
-                logger.info(
-                    f"Email code required but user {tg_user_id} has cookies, "
-                    f"using DB fallback FIO: {fio!r}"
-                )
-                return CheckUserSuccess(user_info=info_dict, fio=fio, is_valid=True)
-        except Exception as fallback_err:
-            logger.debug(f"Fallback cookie check failed for {tg_user_id}: {fallback_err}")
-
+        # Если get_us_info выбросил EmailCodeRequiredError — куки уже проверены
+        # и не работают. Не используем fallback на старые куки, а сразу сообщаем
+        # фронтенду о необходимости ввода email кода.
         logger.info(f"Email code required for user {tg_user_id}")
         return CheckUserNeedsEmailCode()
 

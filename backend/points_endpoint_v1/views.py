@@ -2,6 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from backend.attendance import EmailCodeRequiredError
 from backend.dependencies import init_data
 from backend.utils_helper import db
 
@@ -32,6 +33,11 @@ async def get_us_point(tg_userid=Depends(init_data)):
         res = await _getter_pr(db, tg_userid)
         return res
 
+    except EmailCodeRequiredError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email code required",
+        )
     except Exception as e:
         logger.error(f"Error getting points for user {tg_userid}: {e}", exc_info=True)
         raise HTTPException(
