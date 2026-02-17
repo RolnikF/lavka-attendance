@@ -153,34 +153,24 @@ async def send_self_approve_attendance(
         url = "https://attendance.mirea.ru/rtu_tc.attendance.api.StudentService/SelfApproveAttendance"
 
         headers = {
-            "Accept": "application/grpc-web-text",
+            "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
-            "attendance-app-type": "student-app",
-            "attendance-app-version": "1.0.0+1273",
-            "baggage": (
-                "sentry-environment=production,sentry-release=1.0.0%2B1273,"
-                "sentry-public_key=37febb3f2d7ebcb778a7f43e0d6aed71,"
-                "sentry-trace_id=21c869222f324851b453bfb8bf17ab01,"
-                "sentry-sample_rate=0.001,"
-                "sentry-transaction=%2Flessons%2Fvisiting-logs%2Fselfapprove,"
-                "sentry-sampled=false"
-            ),
             "Content-Type": "application/grpc-web-text",
+            "pulse-app-type": "pulse-app",
+            "pulse-app-version": "1.6.0+5256",
             "Origin": "https://attendance-app.mirea.ru",
             "Referer": "https://attendance-app.mirea.ru/",
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-site",
-            "sentry-trace": "21c869222f324851b453bfb8bf17ab01-857a6458e2bf2072-0",
             "User-Agent": (
                 user_agent
                 if user_agent is not None
                 else generate_random_mobile_user_agent()
             ),
-            "X-Grpc-Web": "1",
+            "x-grpc-web": "1",
             "x-requested-with": "XMLHttpRequest",
-            "X-User-Agent": "grpc-web-javascript/0.1",
         }
 
         async def do_request(session: aiohttp.ClientSession):

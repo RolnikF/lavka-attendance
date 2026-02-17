@@ -67,12 +67,16 @@ async def _check_user(db: DBModel, tg_user_id: int) -> CheckUserResult:
         try:
             cookie_record = await db.get_cookie(tg_user_id)
             if cookie_record and cookie_record.get("cookies"):
-                fio = (info_from_db.get("fio") or info_from_db.get("login") or "")
+                # asyncpg Record → dict для мутабельности
+                info_dict = dict(info_from_db) if info_from_db else {}
+                fio = (info_dict.get("fio") or info_dict.get("login") or "")
+                if not info_dict.get("group_name"):
+                    info_dict["group_name"] = "Не определена"
                 logger.info(
                     f"Email code required but user {tg_user_id} has cookies, "
                     f"using DB fallback FIO: {fio!r}"
                 )
-                return CheckUserSuccess(user_info=info_from_db, fio=fio, is_valid=True)
+                return CheckUserSuccess(user_info=info_dict, fio=fio, is_valid=True)
         except Exception as fallback_err:
             logger.debug(f"Fallback cookie check failed for {tg_user_id}: {fallback_err}")
 
@@ -86,16 +90,18 @@ async def _check_user(db: DBModel, tg_user_id: int) -> CheckUserResult:
         # используем данные из БД как fallback, чтобы приложение работало.
         # group_name может быть пустым (не успел сохраниться), поэтому
         # не требуем его наличия.
+        # asyncpg Record → dict, т.к. Record иммутабелен.
         try:
             if info_from_db and info_from_db.get("login"):
-                fio = (info_from_db.get("fio") or info_from_db.get("login") or "")
-                if not info_from_db.get("group_name"):
-                    info_from_db["group_name"] = "Не определена"
+                info_dict = dict(info_from_db)
+                fio = (info_dict.get("fio") or info_dict.get("login") or "")
+                if not info_dict.get("group_name"):
+                    info_dict["group_name"] = "Не определена"
                 logger.info(
                     f"get_us_info failed for user {tg_user_id}, "
-                    f"using DB fallback: fio={fio!r}, group={info_from_db.get('group_name')!r}"
+                    f"using DB fallback: fio={fio!r}, group={info_dict.get('group_name')!r}"
                 )
-                return CheckUserSuccess(user_info=info_from_db, fio=fio, is_valid=True)
+                return CheckUserSuccess(user_info=info_dict, fio=fio, is_valid=True)
         except Exception:
             pass
 

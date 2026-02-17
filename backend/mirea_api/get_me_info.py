@@ -13,12 +13,20 @@ import aiohttp
 from backend.database import DBModel
 from backend.mirea_api.protobuf_decoder import (
     ME_INFO_TYPEDEF,
-    decode_grpc_response,
+    decode_grpc_response_bytes,
     format_fio,
     get_nested,
 )
 
 from .get_cookies import generate_random_mobile_user_agent
+
+# Бинарное тело запроса GetMeInfo (gRPC-Web proto формат)
+# Структура: {1: "https://attendance-app.mirea.ru", 2: {1: "https://attendance-app.mirea.ru"}, 3: 1}
+_GET_ME_INFO_REQUEST_BODY = bytes.fromhex(
+    "00000000460a1f68747470733a2f2f617474656e64616e63652d6170702e"
+    "6d697265612e727512210a1f68747470733a2f2f617474656e64616e6365"
+    "2d6170702e6d697265612e72751801"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,12 +149,12 @@ async def _query_me_info(
 
         url = "https://attendance.mirea.ru/rtu_tc.rtu_attend.app.UserService/GetMeInfo"
         headers = {
-            "Accept": "application/grpc-web-text",
+            "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
-            "attendance-app-type": "student-app",
-            "attendance-app-version": "1.0.0+1273",
-            "Content-Type": "application/grpc-web-text",
+            "Content-Type": "application/grpc-web+proto",
+            "pulse-app-type": "pulse-app",
+            "pulse-app-version": "1.6.0+5256",
             "Origin": "https://attendance-app.mirea.ru",
             "Referer": "https://attendance-app.mirea.ru/",
             "Sec-Fetch-Dest": "empty",
@@ -157,31 +165,25 @@ async def _query_me_info(
                 if user_agent is not None
                 else generate_random_mobile_user_agent()
             ),
-            "X-Grpc-Web": "1",
+            "x-grpc-web": "1",
             "x-requested-with": "XMLHttpRequest",
-            "X-User-Agent": "grpc-web-javascript/0.1",
         }
-
-        # Тело запроса (base64 encoded)
-        request_body = (
-            "AAAAACwKKGh0dHBzOi8vYXR0ZW5kYW5jZS1hcHAubWlyZWEucnUvc2VydmljZXMYAQ=="
-        )
 
         async with aiohttp.ClientSession() as session:
             session.cookie_jar.update_cookies(cookies_dict)
             async with session.post(
                 url,
-                data=request_body,
+                data=_GET_ME_INFO_REQUEST_BODY,
                 headers=headers,
                 timeout=4,
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Ошибка запроса к {url}. Код: {response.status}")
-                response_text = await response.text()
+                response_bytes = await response.read()
 
-        # Декодируем protobuf ответ
-        logger.debug(f"Длина ответа: {len(response_text)}, начало: {response_text[:50]}...")
-        message = decode_grpc_response(response_text, ME_INFO_TYPEDEF)
+        # Декодируем бинарный protobuf ответ
+        logger.debug(f"Длина ответа: {len(response_bytes)} байт")
+        message = decode_grpc_response_bytes(response_bytes, ME_INFO_TYPEDEF)
         logger.debug(f"Декодированное сообщение: {message}")
 
         # Парсим информацию о пользователе
@@ -264,11 +266,13 @@ async def get_me_info_full(
 
         url = "https://attendance.mirea.ru/rtu_tc.rtu_attend.app.UserService/GetMeInfo"
         headers = {
-            "Accept": "application/grpc-web-text",
-            "Content-Type": "application/grpc-web-text",
+            "Accept": "*/*",
+            "Content-Type": "application/grpc-web+proto",
+            "pulse-app-type": "pulse-app",
+            "pulse-app-version": "1.6.0+5256",
             "Origin": "https://attendance-app.mirea.ru",
             "Referer": "https://attendance-app.mirea.ru/",
-            "X-Grpc-Web": "1",
+            "x-grpc-web": "1",
             "x-requested-with": "XMLHttpRequest",
             "User-Agent": (
                 user_agent
@@ -277,23 +281,19 @@ async def get_me_info_full(
             ),
         }
 
-        request_body = (
-            "AAAAACwKKGh0dHBzOi8vYXR0ZW5kYW5jZS1hcHAubWlyZWEucnUvc2VydmljZXMYAQ=="
-        )
-
         async with aiohttp.ClientSession() as session:
             session.cookie_jar.update_cookies(cookies_dict)
             async with session.post(
                 url,
-                data=request_body,
+                data=_GET_ME_INFO_REQUEST_BODY,
                 headers=headers,
                 timeout=4,
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Ошибка запроса к {url}. Код: {response.status}")
-                response_text = await response.text()
+                response_bytes = await response.read()
 
-        message = decode_grpc_response(response_text, ME_INFO_TYPEDEF)
+        message = decode_grpc_response_bytes(response_bytes, ME_INFO_TYPEDEF)
         return parse_me_info(message)
 
     except Exception as e:

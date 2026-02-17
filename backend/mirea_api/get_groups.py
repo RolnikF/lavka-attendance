@@ -15,7 +15,7 @@ from backend.database import DBModel
 from backend.mirea_api.get_cookies import generate_random_mobile_user_agent
 from backend.mirea_api.protobuf_decoder import (
     VISITING_LOGS_TYPEDEF,
-    decode_grpc_response,
+    decode_grpc_response_bytes,
     ensure_list,
     get_field,
     get_nested,
@@ -122,12 +122,12 @@ async def _query_get_group(
 
         url = "https://attendance.mirea.ru/rtu_tc.attendance.api.VisitingLogService/GetAvailableVisitingLogsOfStudent"
         headers = {
-            "Accept": "application/grpc-web-text",
+            "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
-            "attendance-app-type": "student-app",
-            "attendance-app-version": "1.0.0+1281",
-            "Content-Type": "application/grpc-web-text",
+            "Content-Type": "application/grpc-web+proto",
+            "pulse-app-type": "pulse-app",
+            "pulse-app-version": "1.6.0+5256",
             "Origin": "https://attendance-app.mirea.ru",
             "Referer": "https://attendance-app.mirea.ru/",
             "Sec-Fetch-Dest": "empty",
@@ -138,13 +138,12 @@ async def _query_get_group(
                 if user_agent is not None
                 else generate_random_mobile_user_agent()
             ),
-            "X-Grpc-Web": "1",
+            "x-grpc-web": "1",
             "x-requested-with": "XMLHttpRequest",
-            "X-User-Agent": "grpc-web-javascript/0.1",
         }
 
-        # Пустое тело запроса (base64 encoded)
-        request_body = "AAAAAAA="
+        # Пустое тело запроса (gRPC frame: 5 байт нулей)
+        request_body = b"\x00\x00\x00\x00\x00"
 
         async with aiohttp.ClientSession() as session:
             session.cookie_jar.update_cookies(cookies_dict)
@@ -156,10 +155,10 @@ async def _query_get_group(
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Ошибка запроса к {url}. Код: {response.status}")
-                response_text = await response.text()
+                response_bytes = await response.read()
 
-        # Декодируем protobuf ответ
-        message = decode_grpc_response(response_text, VISITING_LOGS_TYPEDEF)
+        # Декодируем бинарный protobuf ответ
+        message = decode_grpc_response_bytes(response_bytes, VISITING_LOGS_TYPEDEF)
         return message
 
     except Exception as e:
