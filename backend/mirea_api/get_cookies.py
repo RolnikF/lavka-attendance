@@ -245,6 +245,7 @@ async def _skip_required_action(
     from urllib.parse import urlencode
     skip_data = urlencode([("skip", "Пропустить"), ("skip", "true"), ("retry", "")])
 
+    result_status = None
     async with session.post(
         skip_url,
         data=skip_data,
@@ -253,11 +254,50 @@ async def _skip_required_action(
         timeout=aiohttp.ClientTimeout(total=15),
     ) as response:
         final_url = str(response.url)
+        result_status = response.status
         response_text = await response.text()
         logger.info(
             f"Skip required-action ответ: статус={response.status}, URL={final_url}"
         )
-        return final_url, response.status, response_text
+
+    # Если после skip мы всё ещё на sso.mirea.ru, проверяем наличие
+    # OIDC callback формы (Keycloak может вернуть HTML с auto-submit формой
+    # вместо 302 редиректа)
+    if "attendance-app.mirea.ru" not in final_url:
+        soup = BeautifulSoup(response_text, "html.parser")
+        form = soup.find("form")
+        if form and form.get("action"):
+            form_action = form["action"].replace("&amp;", "&")
+            logger.info(
+                f"Найдена форма после skip для {tg_user_id}: action={form_action}"
+            )
+            # Собираем hidden поля формы
+            form_data = {}
+            for inp in form.find_all("input", {"type": "hidden"}):
+                if inp.get("name"):
+                    form_data[inp["name"]] = inp.get("value", "")
+            logger.info(f"Форма после skip: fields={list(form_data.keys())}")
+
+            # Сабмитим форму (OIDC callback или другой required-action)
+            callback_headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": user_agent,
+            }
+            async with session.post(
+                form_action,
+                data=form_data,
+                headers=callback_headers,
+                allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as cb_resp:
+                final_url = str(cb_resp.url)
+                result_status = cb_resp.status
+                response_text = await cb_resp.text()
+                logger.info(
+                    f"Форма после skip ответ: статус={cb_resp.status}, URL={final_url}"
+                )
+
+    return final_url, result_status, response_text
 
 
 async def get_cookies(
@@ -436,15 +476,36 @@ async def get_cookies(
             # 4. Извлекаем куки из cookie_jar
             cookies = _extract_cookies_list(session)
 
-            # Проверяем наличие важных cookies
+            # Проверяем наличие .AspNetCore.Cookies
             aspnet_cookie = any(c["name"] == ".AspNetCore.Cookies" for c in cookies)
-            if (
-                not aspnet_cookie
-                and "attendance-app.mirea.ru" not in final_redirect_url
-            ):
-                raise Exception(
-                    "Не удалось получить cookie авторизации. Проверьте логин и пароль."
+            if not aspnet_cookie:
+                # OIDC flow не завершён — пробуем завершить через GET login URL.
+                # Keycloak сессия уже валидна, поэтому авторизует автоматически.
+                logger.info(
+                    f"Нет .AspNetCore.Cookies для {tg_user_id}, "
+                    f"завершаем OIDC flow через GET login URL"
                 )
+                login_url = (
+                    "https://attendance.mirea.ru/api/auth/login"
+                    "?redirectUri=https%3A%2F%2Fattendance-app.mirea.ru%2Fservices"
+                    "&rememberMe=True"
+                )
+                async with session.get(
+                    login_url,
+                    headers={"User-Agent": random_mobile_ua},
+                    allow_redirects=True,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as oidc_resp:
+                    oidc_final = str(oidc_resp.url)
+                    logger.info(
+                        f"OIDC fallback: статус={oidc_resp.status}, URL={oidc_final}"
+                    )
+                cookies = _extract_cookies_list(session)
+                aspnet_cookie = any(c["name"] == ".AspNetCore.Cookies" for c in cookies)
+                if not aspnet_cookie:
+                    raise Exception(
+                        "Не удалось получить cookie авторизации после OIDC fallback."
+                    )
 
             logger.info(f"Авторизация успешна! Получено {len(cookies)} cookies")
             return [cookies]
@@ -556,8 +617,37 @@ async def submit_email_code(
                         # После пропуска — проверяем результат
                         if _is_max_account_config_page(response_text):
                             raise Exception("Не удалось пропустить настройку Max")
-                        # Теперь извлекаем cookies — успешная авторизация
+
+                        # Проверяем наличие .AspNetCore.Cookies
                         cookies = _extract_cookies_list(session)
+                        has_aspnet = any(c["name"] == ".AspNetCore.Cookies" for c in cookies)
+
+                        if not has_aspnet:
+                            # OIDC flow не завершён — Keycloak сессия валидна,
+                            # но редирект на attendance.mirea.ru не произошёл.
+                            # Делаем GET на login URL — Keycloak авторизует автоматически.
+                            logger.info(
+                                f"Нет .AspNetCore.Cookies после skip для {tg_user_id}, "
+                                f"завершаем OIDC flow через GET login URL"
+                            )
+                            login_url = (
+                                "https://attendance.mirea.ru/api/auth/login"
+                                "?redirectUri=https%3A%2F%2Fattendance-app.mirea.ru%2Fservices"
+                                "&rememberMe=True"
+                            )
+                            async with session.get(
+                                login_url,
+                                headers={"User-Agent": random_mobile_ua},
+                                allow_redirects=True,
+                                timeout=aiohttp.ClientTimeout(total=15),
+                            ) as oidc_resp:
+                                oidc_final = str(oidc_resp.url)
+                                logger.info(
+                                    f"OIDC flow завершён: статус={oidc_resp.status}, "
+                                    f"URL={oidc_final}"
+                                )
+                            cookies = _extract_cookies_list(session)
+
                         logger.info(
                             f"Email код + пропуск Max для пользователя {tg_user_id}! "
                             f"Получено {len(cookies)} cookies"
