@@ -9,9 +9,7 @@ TODO: Получить реальные protobuf схемы для SelfApproveAt
       Нужно перехватить запросы к SelfApproveAttendance и создать typedef.
 """
 
-import base64
 import logging
-import re
 from typing import Optional
 
 import aiohttp
@@ -23,90 +21,58 @@ from .get_cookies import generate_random_mobile_user_agent
 logger = logging.getLogger(__name__)
 
 
-def encode_guid(guid: str) -> str:
+def encode_guid(guid: str) -> bytes:
     """
-    Кодирует входную строку GUID в специальный формат и возвращает Base64-строку.
+    Кодирует входную строку GUID в бинарный формат protobuf с gRPC-web header.
 
     Args:
         guid: Строка GUID для кодирования
 
     Returns:
-        Base64-кодированная строка в формате protobuf
+        Бинарные данные в формате gRPC-web+proto
     """
     guid_bytes = guid.encode("ascii")
     guid_length = len(guid_bytes)
     proto_message = bytes([0x0A, guid_length]) + guid_bytes
     total_length = len(proto_message)
-    final_bytes = b"\x00\x00\x00\x00" + bytes([total_length]) + proto_message
-    return base64.b64encode(final_bytes).decode("ascii")
+    # gRPC-web header: 1 byte flags (0x00) + 4 bytes length (big-endian)
+    final_bytes = b"\x00" + total_length.to_bytes(4, 'big') + proto_message
+    return final_bytes
 
 
-def recursive_base64_decode(s: str, max_iterations: int = 2) -> str:
+def decode_grpc_response(response_bytes: bytes) -> str:
     """
-    Рекурсивно декодирует строку из Base64.
+    Декодирует бинарный ответ gRPC-web+proto и возвращает читаемое сообщение.
 
     Args:
-        s: Base64 закодированная строка
-        max_iterations: Максимальное количество итераций декодирования
-
-    Returns:
-        Декодированная строка
-    """
-    current = s.strip()
-    for _ in range(max_iterations):
-        try:
-            decoded_bytes = base64.b64decode(current, validate=True)
-            decoded_str = decoded_bytes.decode("utf-8", errors="replace")
-        except Exception as e:
-            logger.debug(f"Ошибка декодирования base64: {e}")
-            break
-
-        # Если результат выглядит как Base64, пробуем декодировать ещё раз
-        if decoded_str and re.fullmatch(r"[A-Za-z0-9+/=]+", decoded_str.strip()):
-            current = decoded_str.strip()
-        else:
-            return decoded_str
-    return current
-
-
-def decode_grpc_response(encoded_str: str) -> str:
-    """
-    Декодирует Base64-строку из ответа gRPC-web и возвращает читаемое сообщение.
-
-    Args:
-        encoded_str: Base64-кодированная строка ответа gRPC
+        response_bytes: Бинарные данные ответа gRPC
 
     Returns:
         Декодированное читаемое сообщение
     """
-    try:
-        decoded_bytes = base64.b64decode(encoded_str)
-    except Exception as e:
-        return f"Ошибка декодирования Base64: {str(e)}"
-
     # gRPC-web формат: первые 5 байт - header (1 флаг + 4 длина), затем protobuf
     # Пропускаем header и извлекаем все UTF-8 строки из protobuf
 
     result_parts = []
     i = 5  # Пропускаем gRPC-web header
 
-    while i < len(decoded_bytes):
+    while i < len(response_bytes):
         # Ищем начало UTF-8 строки (русские буквы начинаются с 0xD0 или 0xD1)
-        if i + 1 < len(decoded_bytes) and decoded_bytes[i] in (0xD0, 0xD1):
+        if i + 1 < len(response_bytes) and response_bytes[i] in (0xD0, 0xD1):
             # Пытаемся извлечь русскую строку
             start = i
-            while i < len(decoded_bytes):
+            while i < len(response_bytes):
                 # Русские UTF-8 символы: 0xD0-0xD1 + второй байт, или пробел, или дефис
-                if decoded_bytes[i] in (0xD0, 0xD1) and i + 1 < len(decoded_bytes):
+                if response_bytes[i] in (0xD0, 0xD1) and i + 1 < len(response_bytes):
                     i += 2
-                elif decoded_bytes[i] in (0x20, 0x2D):  # пробел или дефис
+                elif response_bytes[i] in (0x20, 0x2D):  # пробел или дефис
                     i += 1
                 else:
                     break
 
             if i > start:
                 try:
-                    text = decoded_bytes[start:i].decode("utf-8", errors="ignore")
+                    text = response_bytes[start:i].decode("utf-8", errors="ignore")
                     if len(text) > 1:  # Минимум 2 символа
                         result_parts.append(text.strip())
                 except Exception:
@@ -123,7 +89,7 @@ def decode_grpc_response(encoded_str: str) -> str:
     return (
         " | ".join(unique_parts)
         if unique_parts
-        else decoded_bytes.decode("utf-8", errors="replace")
+        else response_bytes.decode("utf-8", errors="replace")
     )
 
 
@@ -156,7 +122,7 @@ async def send_self_approve_attendance(
             "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
-            "Content-Type": "application/grpc-web-text",
+            "Content-Type": "application/grpc-web+proto",
             "pulse-app-type": "pulse-app",
             "pulse-app-version": "1.6.0+5256",
             "Origin": "https://attendance-app.mirea.ru",
@@ -180,8 +146,8 @@ async def send_self_approve_attendance(
                 headers=headers,
             ) as response:
                 status = response.status
-                text = await response.text()
-                return status, text
+                response_bytes = await response.read()
+                return status, response_bytes
 
         async with aiohttp.ClientSession() as session:
 
@@ -189,16 +155,16 @@ async def send_self_approve_attendance(
             cookies_dict = {cookie["name"]: cookie["value"] for cookie in cookies}
             session.cookie_jar.update_cookies(cookies_dict)
 
-            status, response_text = await do_request(session)
+            status, response_bytes = await do_request(session)
             # Если получен статус 401 – выбрасываем ошибку для обработки вызывающим кодом
             if status == 401:
                 raise Exception("Ошибка 401: Unauthorized. Проверьте переданные куки.")
             if status != 200:
                 raise Exception(f"Ошибка запроса, код: {status}")
 
-        logger.debug(f"RAW gRPC response_text: {repr(response_text)}")
+        logger.debug(f"RAW gRPC response_bytes length: {len(response_bytes)}")
 
-        decoded_response = decode_grpc_response(response_text)
+        decoded_response = decode_grpc_response(response_bytes)
 
         logger.debug(f"Decoded response: {repr(decoded_response)}")
 
