@@ -24,6 +24,25 @@ const ToggleSwitch = ({ checked, onChange, disabled = false }) => {
   );
 };
 
+function transformName(fio) {
+  const firstName = fio?.split(' ')[1];
+  if (!firstName) return 'Студентность';
+
+  let base = firstName;
+
+  if (base.endsWith('ий')) {
+    base = base.slice(0, -2);
+  } else if (base.endsWith('ья')) {
+    base = base.slice(0, -1);
+  } else if (base.endsWith('а') || base.endsWith('я')) {
+    base = base.slice(0, -1);
+  }
+
+  const last = base.slice(-1).toLowerCase();
+  const softSuffix = 'нрльйеиоуа'.includes(last);
+  return base + (softSuffix ? 'ность' : 'ость');
+}
+
 const MainScreen = ({ initData, userData, onMarkMultiple, onUpdateUserData, onViewPoints, onShowAdminPanel, onViewSchedule, onViewGroupStatus }) => {
   const [allowOthersToMark, setAllowOthersToMark] = useState(userData?.allowConfirm ?? true);
   const [scanResult, setScanResult] = useState('');
@@ -193,7 +212,7 @@ const MainScreen = ({ initData, userData, onMarkMultiple, onUpdateUserData, onVi
         <motion.div variants={itemVariants} className="flex justify-between items-start">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight text-[var(--text-color)]">
-                    Привет, {userData?.FIO?.split(' ').slice(1,3).join(" ") || 'Студент'}! 👋
+                    Привет, {transformName(userData?.FIO)}! 👋
                 </h1>
                 <p className="text-sm opacity-70 text-[var(--hint-color)]">
                     {userData?.group || 'Группа не определена'}
