@@ -24,7 +24,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Установка системных зависимостей (libzbar для pyzbar - парсинг QR-кодов)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y dos2unix \
     libzbar0 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -47,8 +47,7 @@ COPY --from=frontend /app/frontend/dist /app/static
 # Копируем бэкенд-код
 COPY backend/ /app/backend/
 COPY start-prod.sh /app/start.sh
-RUN chmod +x /app/start.sh
-
+RUN dos2unix /app/start.sh && chmod +x /app/start.sh
 # Создаём непривилегированного пользователя
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
